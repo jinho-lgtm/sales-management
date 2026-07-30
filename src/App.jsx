@@ -709,7 +709,7 @@ function GlobalStyle() {
       .history-icon { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
       .history-body { flex:1; min-width:0; }
       .history-entry .meta { font-size:11px; color:var(--text-muted); font-weight:600; margin-bottom:3px; display:flex; gap:6px; align-items:center; }
-      .history-entry .content { font-size:13px; line-height:1.5; }
+      .history-entry .content { font-size:13px; line-height:1.5; white-space:pre-wrap; }
       .history-actions { display:flex; gap:4px; align-items:center; flex-shrink:0; }
       .icon-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; border-radius:5px; display:flex; }
       .icon-btn:hover { background:var(--bg); color:var(--primary); }
