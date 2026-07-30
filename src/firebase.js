@@ -16,7 +16,7 @@ const firebaseConfig = {
 
 // ⚠️ 전사 공유이지만 회사 구성원만 접근하게 하려면, 사내 이메일 도메인으로 바꿔주세요.
 // 제한 없이 로그인한 모든 구글 계정을 허용하려면 이 값을 빈 문자열 ''로 두세요.
-export const ALLOWED_EMAIL_DOMAIN = 'yourcompany.co.kr';
+export const ALLOWED_EMAIL_DOMAIN = 'fairtravelkorea.com';
 
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
