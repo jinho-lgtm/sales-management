@@ -59,11 +59,11 @@ function stageColorFor(track, stage) {
 
 function emptyMuni() {
   return {
-    name: '', region: REGIONS[0], dept: '',
+    name: '', region: REGIONS[0],
     headName: '', party: '', termCount: TERM_OPTIONS[0],
-    councilContactName: '', councilContactPhone: '', councilContactEmail: '',
-    wegiveContactName: '', wegiveContactPhone: '', wegiveContactEmail: '',
-    wegivepayContactName: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
+    councilDept: '', councilContactName: '', councilContactPhone: '', councilContactEmail: '',
+    wegiveDept: '', wegiveContactName: '', wegiveContactPhone: '', wegiveContactEmail: '',
+    wegivepayDept: '', wegivepayContactName: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
     councilStage: '제안 완료', wegiveStage: '제안 완료', wegivepayStage: '제안 완료',
     fundingLastYearTotal: '', fundingLastYearWegive: '', fundingThisYearTarget: '',
     currencyLastYearTotal: '', currencyThisYearPlanned: '', currencyWegivepayAmount: '',
@@ -393,7 +393,6 @@ function MainApp({ user }) {
                   <div className="section-title">기본 정보</div>
                   <div className="info-grid">
                     <Field label="지역" value={detail.region} icon={<MapPin size={13}/>} />
-                    <Field label="담당 부서" value={detail.dept} />
                     <Field label="단체장 이름" value={detail.headName} icon={<User size={13}/>} />
                     <Field label="소속 정당" value={detail.party} />
                     <Field label="선수" value={detail.termCount} />
@@ -404,6 +403,7 @@ function MainApp({ user }) {
                     {TRACKS.map(t => (
                       <div key={t.key} className="stage-card">
                         <div className="stage-card-label">{t.label}</div>
+                        <div className="icon-row"><Building2 size={13}/>{detail[`${t.contactPrefix}Dept`] || '미입력'}</div>
                         <div className="icon-row"><User size={13}/>{detail[`${t.contactPrefix}ContactName`] || '미입력'}</div>
                         <div className="icon-row"><Phone size={13}/>{detail[`${t.contactPrefix}ContactPhone`] || '미입력'}</div>
                         <div className="icon-row"><Mail size={13}/>{detail[`${t.contactPrefix}ContactEmail`] || '미입력'}</div>
@@ -586,7 +586,6 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
       <div className="form-grid">
         <div className="form-field"><label>지자체명 *</label><input value={data.name} onChange={e=>set('name', e.target.value)} placeholder="예: 양구군" required /></div>
         <div className="form-field"><label>광역시도</label><select value={data.region} onChange={e=>set('region', e.target.value)}>{REGIONS.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-        <div className="form-field"><label>담당 부서</label><input value={data.dept} onChange={e=>set('dept', e.target.value)} placeholder="예: 정책기획과" /></div>
         <div className="form-field"><label>단체장 이름</label><input value={data.headName} onChange={e=>set('headName', e.target.value)} /></div>
         <div className="form-field"><label>소속 정당</label><input value={data.party} onChange={e=>set('party', e.target.value)} /></div>
         <div className="form-field"><label>선수</label>
@@ -598,6 +597,7 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
       <div className="form-grid">
         {TRACKS.map(t => (
           <React.Fragment key={t.key}>
+            <div className="form-field"><label>{t.label} 담당 부서</label><input value={data[`${t.contactPrefix}Dept`]} onChange={e=>set(`${t.contactPrefix}Dept`, e.target.value)} placeholder="예: 정책기획과" /></div>
             <div className="form-field"><label>{t.label} 담당자</label><input value={data[`${t.contactPrefix}ContactName`]} onChange={e=>set(`${t.contactPrefix}ContactName`, e.target.value)} /></div>
             <div className="form-field"><label>{t.label} 연락처</label><input value={data[`${t.contactPrefix}ContactPhone`]} onChange={e=>set(`${t.contactPrefix}ContactPhone`, e.target.value)} placeholder="000-0000-0000" /></div>
             <div className="form-field full"><label>{t.label} 이메일</label><input value={data[`${t.contactPrefix}ContactEmail`]} onChange={e=>set(`${t.contactPrefix}ContactEmail`, e.target.value)} /></div>
