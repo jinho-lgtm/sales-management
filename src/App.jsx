@@ -3,7 +3,7 @@ import { Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Tra
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
 
 const REGIONS = ['서울특별시','부산광역시','대구광역시','인천광역시','대전광역시','울산광역시','세종특별자치시','경기도','강원특별자치도','충청북도','충청남도','전북특별자치도','전남광주통합특별시','경상북도','경상남도','제주특별자치도'];
@@ -55,7 +55,7 @@ function SignInScreen({ externalError }) {
     setSigningIn(true);
     setErr('');
     try {
-      await signInWithRedirect(auth, googleProvider);
+      await signInWithPopup(auth, googleProvider);
     } catch (e) {
       setErr(`${e.code || ''} ${e.message}`);
     }
