@@ -5,12 +5,13 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 // ⚠️ Firebase 콘솔(console.firebase.google.com) > 프로젝트 설정 > 일반 탭 하단
 // "내 앱" 섹션에서 웹 앱을 추가하면 아래 값들을 그대로 복사해서 넣을 수 있어요.
 const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-  messagingSenderId: 'YOUR_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: "AIzaSyBanHciLoKnkvjecdEyYkBVuOJA5kzKxVk",
+  authDomain: "sales-management-27978.firebaseapp.com",
+  projectId: "sales-management-27978",
+  storageBucket: "sales-management-27978.firebasestorage.app",
+  messagingSenderId: "238547853740",
+  appId: "1:238547853740:web:59103802a847660ec9da09",
+  measurementId: "G-Q8EYTJ81HE"
 };
 
 // ⚠️ 전사 공유이지만 회사 구성원만 접근하게 하려면, 사내 이메일 도메인으로 바꿔주세요.
