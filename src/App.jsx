@@ -4,7 +4,7 @@ import {
   ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download,
 } from 'lucide-react';
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, getDocs,
+  collection, doc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs,
 } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithPopup, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
@@ -101,6 +101,15 @@ function emptyContractDraft() {
   return { category: CONTRACT_CATEGORIES[0], name: '', year: String(new Date().getFullYear()), amount: '', memo: '' };
 }
 
+// 연간/월간 목표 문서 키
+function currentYear() { return new Date().getFullYear(); }
+function currentMonth() { return new Date().getMonth() + 1; }
+function monthlyGoalId(year, month) { return `${year}-${month}`; }
+function emptyMonthlyDraft() { return { title: '', category: '전체', target: '' }; }
+function emptyAnnualDraft() { return { title: '', category: '전체', target: '' }; }
+function emptyKeyActivityDraft() { return { label: '', category: '전체', historyType: '전체', targetCount: '' }; }
+function uid2() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
 // ---------- 인증 ----------
 
 function useAuthUser() {
@@ -184,6 +193,17 @@ function MainApp({ user }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [activityRaw, setActivityRaw] = useState([]);
+  const [yearActivity, setYearActivity] = useState([]);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth());
+  const [annualGoal, setAnnualGoal] = useState(null);
+  const [monthlyGoal, setMonthlyGoal] = useState(null);
+  const [editingAnnual, setEditingAnnual] = useState(false);
+  const [annualDraft, setAnnualDraft] = useState(emptyAnnualDraft());
+  const [editingMonthly, setEditingMonthly] = useState(false);
+  const [monthlyDraft, setMonthlyDraft] = useState(emptyMonthlyDraft());
+  const [keyActivityDraft, setKeyActivityDraft] = useState(emptyKeyActivityDraft());
+  const [savingGoal, setSavingGoal] = useState(false);
 
   const detail = munis.find(m => m.id === selectedId) || null;
 
@@ -246,6 +266,122 @@ function MainApp({ user }) {
       setError(`백업 다운로드에 실패했어요 (${e.message}).`);
     }
     setExporting(false);
+  }
+
+  useEffect(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const q = query(collection(db, 'activity'), where('at', '>=', sevenDaysAgo));
+    const unsub = onSnapshot(q, snap => {
+      setActivityRaw(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => setError(`활동 내역을 불러오지 못했어요 (${err.message}).`));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const yearStart = new Date(currentYear(), 0, 1);
+    const q = query(collection(db, 'activity'), where('at', '>=', yearStart));
+    const unsub = onSnapshot(q, snap => {
+      setYearActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => a.kind === 'history' && a.action === 'created'));
+    }, err => setError(`연간 활동 데이터를 불러오지 못했어요 (${err.message}).`));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'annualGoals', String(currentYear())), snap => {
+      setAnnualGoal(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+    }, err => setError(`연간 목표를 불러오지 못했어요 (${err.message}).`));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const id = monthlyGoalId(currentYear(), selectedMonth);
+    const unsub = onSnapshot(doc(db, 'monthlyGoals', id), snap => {
+      setMonthlyGoal(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+      setEditingMonthly(false);
+    }, err => setError(`월간 목표를 불러오지 못했어요 (${err.message}).`));
+    return unsub;
+  }, [selectedMonth]);
+
+  async function logActivity(entry) {
+    try {
+      await addDoc(collection(db, 'activity'), { ...entry, at: serverTimestamp() });
+    } catch (e) { /* 활동 로그 실패는 조용히 무시 - 본 데이터 저장에는 영향 없음 */ }
+  }
+
+  async function handleSaveAnnualGoal(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!annualDraft.title.trim()) { setError('연간 목표 내용을 입력해주세요.'); return; }
+    setSavingGoal(true);
+    setError('');
+    try {
+      await setDoc(doc(db, 'annualGoals', String(currentYear())), {
+        year: currentYear(), title: annualDraft.title.trim(), category: annualDraft.category,
+        target: Number(annualDraft.target) || 0, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setEditingAnnual(false);
+    } catch (e) {
+      setError(`연간 목표 저장에 실패했어요 (${e.message}).`);
+    }
+    setSavingGoal(false);
+  }
+
+  async function handleSaveMonthlyGoal(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!monthlyDraft.title.trim()) { setError('월간 목표 내용을 입력해주세요.'); return; }
+    setSavingGoal(true);
+    setError('');
+    const id = monthlyGoalId(currentYear(), selectedMonth);
+    const payload = {
+      year: currentYear(), month: selectedMonth, title: monthlyDraft.title.trim(), category: monthlyDraft.category,
+      target: Number(monthlyDraft.target) || 0, keyActivities: monthlyGoal?.keyActivities || [],
+      updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
+    };
+    try {
+      await setDocSafe(id, payload);
+      setEditingMonthly(false);
+    } catch (e) {
+      setError(`월간 목표 저장에 실패했어요 (${e.message}).`);
+    }
+    setSavingGoal(false);
+  }
+
+  // monthlyGoals 문서가 없을 수도 있으므로 setDoc(merge)로 항상 안전하게 저장한다.
+  async function setDocSafe(id, payload) {
+    await setDoc(doc(db, 'monthlyGoals', id), payload, { merge: true });
+  }
+
+  async function handleAddKeyActivity(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!keyActivityDraft.label.trim()) { setError('핵심활동 이름을 입력해주세요.'); return; }
+    setSavingGoal(true);
+    setError('');
+    const id = monthlyGoalId(currentYear(), selectedMonth);
+    const newItem = { id: uid2(), label: keyActivityDraft.label.trim(), category: keyActivityDraft.category, historyType: keyActivityDraft.historyType, targetCount: Number(keyActivityDraft.targetCount) || 0 };
+    const nextActivities = [...(monthlyGoal?.keyActivities || []), newItem];
+    try {
+      await setDocSafe(id, {
+        year: currentYear(), month: selectedMonth,
+        title: monthlyGoal?.title || '', category: monthlyGoal?.category || '전체', target: monthlyGoal?.target || 0,
+        keyActivities: nextActivities, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
+      });
+      setKeyActivityDraft(emptyKeyActivityDraft());
+    } catch (e) {
+      setError(`핵심활동 저장에 실패했어요 (${e.message}).`);
+    }
+    setSavingGoal(false);
+  }
+
+  async function handleDeleteKeyActivity(itemId) {
+    if (!window.confirm('이 핵심활동을 삭제할까요?')) return;
+    const id = monthlyGoalId(currentYear(), selectedMonth);
+    const nextActivities = (monthlyGoal?.keyActivities || []).filter(k => k.id !== itemId);
+    try {
+      await setDocSafe(id, { ...monthlyGoal, keyActivities: nextActivities, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp() });
+    } catch (e) {
+      setError(`핵심활동 삭제에 실패했어요 (${e.message}).`);
+    }
   }
 
   function openAddForm() {
@@ -315,6 +451,11 @@ function MainApp({ user }) {
       } else {
         await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
       }
+      logActivity({
+        muniId: selectedId, muniName: detail?.name || '', kind: 'history', category: payload.category, type: payload.type,
+        action: editingHistoryId ? 'updated' : 'created', summary: payload.content.slice(0, 60),
+        author: payload.author || user.displayName || user.email,
+      });
       setEditingHistoryId(null);
       setHistoryDraft(emptyHistoryDraft(user.displayName));
     } catch (e) {
@@ -352,6 +493,12 @@ function MainApp({ user }) {
       } else {
         await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
       }
+      logActivity({
+        muniId: selectedId, muniName: detail?.name || '', kind: 'contract', category: payload.category,
+        action: editingContractId ? 'updated' : 'created',
+        summary: `${payload.name} (${Number(payload.amount || 0).toLocaleString('ko-KR')}원)`,
+        author: user.displayName || user.email,
+      });
       setEditingContractId(null);
       setContractDraft(emptyContractDraft());
     } catch (e) {
@@ -378,6 +525,31 @@ function MainApp({ user }) {
     (!historyCategoryFilter || h.category === historyCategoryFilter) &&
     (!historyMonthFilter || (h.date || '').slice(0, 7) === historyMonthFilter)
   );
+
+  const activityFeed = activityRaw.slice().sort((a, b) => {
+    const ta = a.at?.toDate ? a.at.toDate().getTime() : 0;
+    const tb = b.at?.toDate ? b.at.toDate().getTime() : 0;
+    return tb - ta;
+  });
+  const monthActivity = yearActivity.filter(a => {
+    const t = a.at?.toDate ? a.at.toDate() : null;
+    return t && t.getFullYear() === currentYear() && (t.getMonth() + 1) === selectedMonth;
+  });
+  const monthByCategory = {};
+  const monthByType = {};
+  monthActivity.forEach(a => {
+    if (a.category) monthByCategory[a.category] = (monthByCategory[a.category] || 0) + 1;
+    if (a.type) monthByType[a.type] = (monthByType[a.type] || 0) + 1;
+  });
+  const monthlyGoalCount = monthActivity.filter(a => !monthlyGoal?.category || monthlyGoal.category === '전체' || a.category === monthlyGoal.category).length;
+  const annualGoalCount = yearActivity.filter(a => !annualGoal?.category || annualGoal.category === '전체' || a.category === annualGoal.category).length;
+  const keyActivitiesWithCount = (monthlyGoal?.keyActivities || []).map(k => ({
+    ...k,
+    count: monthActivity.filter(a =>
+      (k.category === '전체' || a.category === k.category) &&
+      (k.historyType === '전체' || a.type === k.historyType)
+    ).length,
+  }));
 
   return (
     <div className={`app-root ${selectedId || showForm ? 'has-selection' : ''}`}>
@@ -426,10 +598,22 @@ function MainApp({ user }) {
           {showForm ? (
             <MuniForm data={formData} setData={setFormData} onSubmit={handleSaveForm} onCancel={() => setShowForm(false)} isEditing={isEditing} saving={saving} />
           ) : !selectedId ? (
-            <div className="empty-state">
-              <Building2 size={36} strokeWidth={1.2} />
-              <p>왼쪽 목록에서 지자체를 선택하거나<br/>신규 지자체를 등록해보세요.</p>
-            </div>
+            <Dashboard
+              activityFeed={activityFeed}
+              annualGoal={annualGoal} editingAnnual={editingAnnual} setEditingAnnual={setEditingAnnual}
+              annualDraft={annualDraft} setAnnualDraft={setAnnualDraft} onSaveAnnualGoal={handleSaveAnnualGoal}
+              annualGoalCount={annualGoalCount}
+              selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
+              monthlyGoal={monthlyGoal} editingMonthly={editingMonthly} setEditingMonthly={setEditingMonthly}
+              monthlyDraft={monthlyDraft} setMonthlyDraft={setMonthlyDraft} onSaveMonthlyGoal={handleSaveMonthlyGoal}
+              monthlyGoalCount={monthlyGoalCount}
+              keyActivities={keyActivitiesWithCount}
+              keyActivityDraft={keyActivityDraft} setKeyActivityDraft={setKeyActivityDraft}
+              onAddKeyActivity={handleAddKeyActivity} onDeleteKeyActivity={handleDeleteKeyActivity}
+              monthByCategory={monthByCategory} monthByType={monthByType}
+              savingGoal={savingGoal}
+              onJumpTo={(muniId, kind) => { setSelectedId(muniId); setTab(kind === 'contract' ? 'contracts' : 'history'); }}
+            />
           ) : !detail ? (
             <div className="empty-state"><Loader2 size={24} className="spin" /> 불러오는 중…</div>
           ) : (
@@ -666,6 +850,203 @@ function MainApp({ user }) {
   );
 }
 
+const MONTH_LABELS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+
+function GoalBar({ count, target }) {
+  if (!target) return null;
+  const pct = Math.min(100, Math.round((count / target) * 100));
+  const done = count >= target;
+  return (
+    <div className="goal-bar-track"><div className="goal-bar-fill" style={{ width: `${pct}%`, background: done ? '#3F7A57' : '#B8862E' }} /></div>
+  );
+}
+
+function Dashboard(props) {
+  const {
+    activityFeed,
+    annualGoal, editingAnnual, setEditingAnnual, annualDraft, setAnnualDraft, onSaveAnnualGoal, annualGoalCount,
+    selectedMonth, setSelectedMonth,
+    monthlyGoal, editingMonthly, setEditingMonthly, monthlyDraft, setMonthlyDraft, onSaveMonthlyGoal, monthlyGoalCount,
+    keyActivities, keyActivityDraft, setKeyActivityDraft, onAddKeyActivity, onDeleteKeyActivity,
+    monthByCategory, monthByType, savingGoal, onJumpTo,
+  } = props;
+
+  const ACTION_LABEL = { history: { created: '히스토리 추가', updated: '히스토리 수정' }, contract: { created: '용역 등록', updated: '용역 수정' } };
+
+  function openAnnualEdit() {
+    setAnnualDraft(annualGoal ? { title: annualGoal.title, category: annualGoal.category, target: annualGoal.target || '' } : emptyAnnualDraft());
+    setEditingAnnual(true);
+  }
+  function openMonthlyEdit() {
+    setMonthlyDraft(monthlyGoal ? { title: monthlyGoal.title, category: monthlyGoal.category, target: monthlyGoal.target || '' } : emptyMonthlyDraft());
+    setEditingMonthly(true);
+  }
+
+  return (
+    <div>
+      <div className="section-title">연간 목표 · {currentYear()}년</div>
+      {editingAnnual ? (
+        <form className="history-form" onSubmit={onSaveAnnualGoal}>
+          <div className="form-grid">
+            <div className="form-field full"><label>연간 목표</label><input value={annualDraft.title} onChange={e=>setAnnualDraft({...annualDraft, title:e.target.value})} placeholder="예: 위기브 전국 100개 지자체 입점" /></div>
+            <div className="form-field"><label>사업</label>
+              <select value={annualDraft.category} onChange={e=>setAnnualDraft({...annualDraft, category:e.target.value})}>
+                <option value="전체">전체</option>
+                {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="form-field"><label>목표 건수</label><input type="number" value={annualDraft.target} onChange={e=>setAnnualDraft({...annualDraft, target:e.target.value})} placeholder="예: 100" /></div>
+          </div>
+          <div className="form-actions">
+            <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditingAnnual(false)}><X size={14}/> 취소</button>
+          </div>
+        </form>
+      ) : annualGoal ? (
+        <div className="goal-card" style={{marginBottom:24}}>
+          <div className="goal-card-top">
+            <div>
+              <strong>{annualGoal.title}</strong>
+              <span className="goal-meta"> · {annualGoal.category}{annualGoal.target > 0 && ` · ${annualGoalCount}/${annualGoal.target}건`}</span>
+            </div>
+            <button className="btn-secondary" onClick={openAnnualEdit}><Edit3 size={13}/> 수정</button>
+          </div>
+          <GoalBar count={annualGoalCount} target={annualGoal.target} />
+        </div>
+      ) : (
+        <div style={{marginBottom:24}}>
+          <div style={{fontSize:13, color:'#6B7280', marginBottom:8}}>아직 {currentYear()}년 연간 목표가 없어요.</div>
+          <button className="btn-secondary" onClick={openAnnualEdit}><Plus size={13}/> 연간 목표 설정</button>
+        </div>
+      )}
+
+      <div className="section-title">월별 목표</div>
+      <div className="filter-row">
+        {MONTH_LABELS.map((label, i) => (
+          <button key={label} className={`filter-chip ${selectedMonth===i+1?'active':''}`} onClick={() => setSelectedMonth(i+1)}>{label}</button>
+        ))}
+      </div>
+
+      {editingMonthly ? (
+        <form className="history-form" onSubmit={onSaveMonthlyGoal}>
+          <div className="form-grid">
+            <div className="form-field full"><label>{selectedMonth}월 목표</label><input value={monthlyDraft.title} onChange={e=>setMonthlyDraft({...monthlyDraft, title:e.target.value})} placeholder="예: 협의회 신규 제안 5개 지자체" /></div>
+            <div className="form-field"><label>사업</label>
+              <select value={monthlyDraft.category} onChange={e=>setMonthlyDraft({...monthlyDraft, category:e.target.value})}>
+                <option value="전체">전체</option>
+                {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="form-field"><label>목표 건수</label><input type="number" value={monthlyDraft.target} onChange={e=>setMonthlyDraft({...monthlyDraft, target:e.target.value})} placeholder="예: 5" /></div>
+          </div>
+          <div className="form-actions">
+            <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditingMonthly(false)}><X size={14}/> 취소</button>
+          </div>
+        </form>
+      ) : monthlyGoal?.title ? (
+        <div className="goal-card" style={{marginBottom:16}}>
+          <div className="goal-card-top">
+            <div>
+              <strong>{monthlyGoal.title}</strong>
+              <span className="goal-meta"> · {monthlyGoal.category}{monthlyGoal.target > 0 && ` · ${monthlyGoalCount}/${monthlyGoal.target}건`}</span>
+            </div>
+            <button className="btn-secondary" onClick={openMonthlyEdit}><Edit3 size={13}/> 수정</button>
+          </div>
+          <GoalBar count={monthlyGoalCount} target={monthlyGoal.target} />
+        </div>
+      ) : (
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:13, color:'#6B7280', marginBottom:8}}>{selectedMonth}월 목표가 아직 없어요.</div>
+          <button className="btn-secondary" onClick={openMonthlyEdit}><Plus size={13}/> {selectedMonth}월 목표 설정</button>
+        </div>
+      )}
+
+      <div className="section-title">핵심활동 ({selectedMonth}월)</div>
+      <form className="history-form" onSubmit={onAddKeyActivity}>
+        <div className="form-grid">
+          <div className="form-field full"><label>핵심활동 이름</label><input value={keyActivityDraft.label} onChange={e=>setKeyActivityDraft({...keyActivityDraft, label:e.target.value})} placeholder="예: 지자체 방문" /></div>
+          <div className="form-field"><label>사업</label>
+            <select value={keyActivityDraft.category} onChange={e=>setKeyActivityDraft({...keyActivityDraft, category:e.target.value})}>
+              <option value="전체">전체</option>
+              {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="form-field"><label>활동 유형</label>
+            <select value={keyActivityDraft.historyType} onChange={e=>setKeyActivityDraft({...keyActivityDraft, historyType:e.target.value})}>
+              <option value="전체">전체</option>
+              {HISTORY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="form-field"><label>목표 건수</label><input type="number" value={keyActivityDraft.targetCount} onChange={e=>setKeyActivityDraft({...keyActivityDraft, targetCount:e.target.value})} placeholder="예: 10" /></div>
+        </div>
+        <div className="form-actions">
+          <button className="btn-primary" type="submit" disabled={savingGoal}><Plus size={14}/> {savingGoal ? '저장 중…' : '핵심활동 추가'}</button>
+        </div>
+      </form>
+
+      {keyActivities.length === 0 ? (
+        <div style={{fontSize:13, color:'#6B7280', marginBottom:24}}>등록된 핵심활동이 없어요. 히스토리 입력 시 자동으로 건수가 집계돼요.</div>
+      ) : (
+        <div style={{display:'flex', flexDirection:'column', gap:10, marginBottom:28}}>
+          {keyActivities.map(k => (
+            <div key={k.id} className="goal-card">
+              <div className="goal-card-top">
+                <div>
+                  <strong>{k.label}</strong>
+                  <span className="goal-meta"> · {k.category} · {k.historyType}{k.targetCount > 0 && ` · ${k.count}/${k.targetCount}건`}</span>
+                </div>
+                <button className="icon-btn" onClick={() => onDeleteKeyActivity(k.id)} title="삭제"><Trash2 size={13}/></button>
+              </div>
+              <GoalBar count={k.count} target={k.targetCount} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="section-title">{selectedMonth}월 활동 요약 (자동 집계)</div>
+      <div className="stage-grid" style={{marginBottom:24}}>
+        <div className="stage-card">
+          <div className="stage-card-label">사업별 히스토리 건수</div>
+          {HISTORY_CATEGORIES.map(c => (
+            <div key={c.label} className="icon-row"><span className="pill" style={{background:c.color, color:'#fff'}}>{c.label}</span> {monthByCategory[c.label] || 0}건</div>
+          ))}
+        </div>
+        <div className="stage-card">
+          <div className="stage-card-label">유형별 히스토리 건수</div>
+          {HISTORY_TYPES.map(t => (
+            <div key={t} className="icon-row">{t}: {monthByType[t] || 0}건</div>
+          ))}
+        </div>
+      </div>
+
+      <div className="section-title">최근 7일 활동</div>
+      {activityFeed.length === 0 ? (
+        <div style={{fontSize:13, color:'#6B7280'}}>최근 7일간 기록된 활동이 없어요.</div>
+      ) : activityFeed.map(a => {
+        const Icon = a.kind === 'contract' ? FileText : (HISTORY_TYPE_ICON[a.type] || Circle);
+        const catColor = categoryColorFor(a.category);
+        const label = (ACTION_LABEL[a.kind] || {})[a.action] || '업데이트';
+        return (
+          <div key={a.id} className="history-entry" style={{cursor:'pointer'}} onClick={() => onJumpTo(a.muniId, a.kind)}>
+            <div className="history-icon" style={{background: catColor + '22'}}><Icon size={14} color={catColor}/></div>
+            <div className="history-body">
+              <div className="meta-pills">
+                <span className="pill" style={{background: catColor, color:'#fff'}}>{a.muniName || '지자체'}</span>
+                {a.category && <span className="pill pill-type">{a.category}</span>}
+                <span className="pill pill-type">{label}</span>
+                {a.author && <span className="pill pill-author"><User size={11}/> {a.author}</span>}
+                <span className="pill pill-date"><Clock size={11}/> {a.at?.toDate ? a.at.toDate().toLocaleString('ko-KR', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) : ''}</span>
+              </div>
+              <div className="content">{a.summary}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Field({ label, value, icon, full }) {
   return (
     <div className="info-field" style={full ? {gridColumn:'1 / -1'} : {}}>
@@ -827,6 +1208,11 @@ function GlobalStyle() {
       .icon-row { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); }
       .icon-row svg { color:var(--text-muted); flex-shrink:0; }
       .total-line { font-size:13px; font-weight:700; color:var(--primary); margin-bottom:12px; }
+      .goal-card { border:1px solid var(--border); border-radius:9px; padding:12px 14px; background:var(--surface); }
+      .goal-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; font-size:13px; }
+      .goal-meta { color:var(--text-muted); font-size:12px; }
+      .goal-bar-track { background:var(--bg); border-radius:20px; height:7px; margin-top:8px; overflow:hidden; }
+      .goal-bar-fill { height:100%; border-radius:20px; transition:width 0.3s; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
       .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
       .contract-row:last-child { border-bottom:none; }
