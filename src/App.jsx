@@ -52,6 +52,28 @@ const TRACKS = [
 const HISTORY_TYPES = ['방문', '전화', '이메일', '화상미팅', '내부검토', '기타'];
 const HISTORY_TYPE_ICON = { 방문: MapPin, 전화: Phone, 이메일: Mail, 화상미팅: Video, 내부검토: FileText, 기타: Circle };
 
+const HISTORY_CATEGORIES = [
+  { label: '협의회', color: '#2C6E5E' },
+  { label: '고향사랑기부제', color: '#B8862E' },
+  { label: '지역화폐', color: '#6B4FA0' },
+];
+
+function categoryColorFor(label) {
+  const found = HISTORY_CATEGORIES.find(c => c.label === label);
+  return found ? found.color : '#8A8F98';
+}
+
+// 히스토리 내용에서 **굵게** 표시를 굵은 글씨로 렌더링한다.
+function renderHistoryContent(text) {
+  const parts = (text || '').split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
+
 function stageColorFor(track, stage) {
   const found = track.stages.find(s => s.value === stage);
   return found ? found.color : '#8A8F98';
@@ -72,7 +94,7 @@ function emptyMuni() {
 }
 
 function emptyHistoryDraft(defaultAuthor) {
-  return { date: new Date().toISOString().slice(0, 10), type: '방문', author: defaultAuthor || '', content: '' };
+  return { category: HISTORY_CATEGORIES[0].label, date: new Date().toISOString().slice(0, 10), type: '방문', author: defaultAuthor || '', content: '' };
 }
 
 function emptyContractDraft() {
@@ -155,6 +177,8 @@ function MainApp({ user }) {
   const [tab, setTab] = useState('info');
   const [historyDraft, setHistoryDraft] = useState(emptyHistoryDraft(user.displayName));
   const [editingHistoryId, setEditingHistoryId] = useState(null);
+  const [historyCategoryFilter, setHistoryCategoryFilter] = useState(null);
+  const [historyMonthFilter, setHistoryMonthFilter] = useState(null);
   const [contractDraft, setContractDraft] = useState(emptyContractDraft());
   const [editingContractId, setEditingContractId] = useState(null);
   const [error, setError] = useState('');
@@ -175,6 +199,8 @@ function MainApp({ user }) {
   }, []);
 
   useEffect(() => {
+    setHistoryCategoryFilter(null);
+    setHistoryMonthFilter(null);
     if (!selectedId) { setHistory([]); setContracts([]); return; }
     setLoadingSub(true);
     const hq = query(collection(db, 'municipalities', selectedId, 'history'), orderBy('date', 'desc'));
@@ -238,7 +264,7 @@ function MainApp({ user }) {
   // ---- 히스토리 ----
   function startEditHistory(h) {
     setEditingHistoryId(h.id);
-    setHistoryDraft({ date: h.date, type: h.type, author: h.author || '', content: h.content });
+    setHistoryDraft({ category: h.category || HISTORY_CATEGORIES[0].label, date: h.date, type: h.type, author: h.author || '', content: h.content });
   }
   function cancelEditHistory() {
     setEditingHistoryId(null);
@@ -311,6 +337,14 @@ function MainApp({ user }) {
 
   const totalContractAmount = contracts.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
   const filtered = munis.filter(m => m.name.includes(search) || (m.region || '').includes(search));
+
+  const historyMonthCounts = {};
+  history.forEach(h => { const m = (h.date || '').slice(0, 7); if (m) historyMonthCounts[m] = (historyMonthCounts[m] || 0) + 1; });
+  const historyMonths = Object.keys(historyMonthCounts).sort().reverse();
+  const filteredHistory = history.filter(h =>
+    (!historyCategoryFilter || h.category === historyCategoryFilter) &&
+    (!historyMonthFilter || (h.date || '').slice(0, 7) === historyMonthFilter)
+  );
 
   return (
     <div className={`app-root ${selectedId || showForm ? 'has-selection' : ''}`}>
@@ -445,6 +479,12 @@ function MainApp({ user }) {
                     {editingHistoryId && <div className="editing-badge">히스토리 수정 중</div>}
                     <div className="form-grid">
                       <div className="form-field">
+                        <label>사업</label>
+                        <select value={historyDraft.category} onChange={e => setHistoryDraft({...historyDraft, category:e.target.value})}>
+                          {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-field">
                         <label>날짜</label>
                         <input type="date" value={historyDraft.date} onChange={e => setHistoryDraft({...historyDraft, date:e.target.value})} />
                       </div>
@@ -459,8 +499,8 @@ function MainApp({ user }) {
                         <input value={historyDraft.author} onChange={e => setHistoryDraft({...historyDraft, author:e.target.value})} placeholder="예: 노진호" />
                       </div>
                       <div className="form-field full">
-                        <label>내용</label>
-                        <textarea value={historyDraft.content} onChange={e => setHistoryDraft({...historyDraft, content:e.target.value})} placeholder="미팅/통화 내용, 논의 사항, 다음 액션 등을 기록하세요." />
+                        <label>내용 (**이렇게 감싸면** 굵게 표시돼요)</label>
+                        <textarea value={historyDraft.content} onChange={e => setHistoryDraft({...historyDraft, content:e.target.value})} placeholder="미팅/통화 내용, 논의 사항, 다음 액션 등을 기록하세요. **핵심 내용**은 별표 두 개로 감싸면 굵게 표시돼요." />
                       </div>
                     </div>
                     <div className="form-actions">
@@ -469,20 +509,48 @@ function MainApp({ user }) {
                     </div>
                   </form>
 
+                  {history.length > 0 && (
+                    <div className="filter-row">
+                      <button className={`filter-chip ${!historyCategoryFilter?'active':''}`} onClick={() => setHistoryCategoryFilter(null)}>전체 사업</button>
+                      {HISTORY_CATEGORIES.map(c => (
+                        <button key={c.label} className="filter-chip" style={historyCategoryFilter===c.label ? {background:c.color, color:'#fff', borderColor:c.color} : {}} onClick={() => setHistoryCategoryFilter(historyCategoryFilter===c.label ? null : c.label)}>{c.label}</button>
+                      ))}
+                    </div>
+                  )}
+                  {historyMonths.length > 0 && (
+                    <div className="filter-row">
+                      <button className={`filter-chip ${!historyMonthFilter?'active':''}`} onClick={() => setHistoryMonthFilter(null)}>전체 기간</button>
+                      {historyMonths.map(m => {
+                        const [y, mo] = m.split('-');
+                        return (
+                          <button key={m} className={`filter-chip ${historyMonthFilter===m?'active':''}`} onClick={() => setHistoryMonthFilter(historyMonthFilter===m ? null : m)}>
+                            {y}년 {parseInt(mo,10)}월 ({historyMonthCounts[m]})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {loadingSub ? (
                     <div style={{fontSize:13, color:'#6B7280'}}>불러오는 중…</div>
                   ) : history.length === 0 ? (
                     <div style={{fontSize:13, color:'#6B7280'}}>아직 기록된 영업 히스토리가 없어요.</div>
-                  ) : history.map(h => {
+                  ) : filteredHistory.length === 0 ? (
+                    <div style={{fontSize:13, color:'#6B7280'}}>선택한 조건에 맞는 히스토리가 없어요.</div>
+                  ) : filteredHistory.map(h => {
                     const Icon = HISTORY_TYPE_ICON[h.type] || Circle;
+                    const catColor = categoryColorFor(h.category);
                     return (
                       <div key={h.id} className="history-entry">
-                        <div className="history-icon" style={{background: '#F0EAD6'}}><Icon size={14} color="#B8862E"/></div>
+                        <div className="history-icon" style={{background: catColor + '22'}}><Icon size={14} color={catColor}/></div>
                         <div className="history-body">
-                          <div className="meta">
-                            <span>{h.date}</span><span>·</span><span>{h.type}</span>{h.author && <><span>·</span><span>{h.author}</span></>}
+                          <div className="meta-pills">
+                            {h.category && <span className="pill" style={{background: catColor, color:'#fff'}}>{h.category}</span>}
+                            <span className="pill pill-date"><Clock size={11}/> {h.date}</span>
+                            <span className="pill pill-type">{h.type}</span>
+                            {h.author && <span className="pill pill-author"><User size={11}/> {h.author}</span>}
                           </div>
-                          <div className="content">{h.content}</div>
+                          <div className="content">{renderHistoryContent(h.content)}</div>
                         </div>
                         <div className="history-actions">
                           <button className="icon-btn" onClick={() => startEditHistory(h)} title="수정"><Edit3 size={13}/></button>
@@ -713,6 +781,14 @@ function GlobalStyle() {
       .history-actions { display:flex; gap:4px; align-items:center; flex-shrink:0; }
       .icon-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; border-radius:5px; display:flex; }
       .icon-btn:hover { background:var(--bg); color:var(--primary); }
+      .filter-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+      .filter-chip { padding:5px 12px; border-radius:20px; font-size:12px; font-weight:600; border:1px solid var(--border); background:var(--surface); cursor:pointer; color:var(--text-muted); }
+      .filter-chip.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+      .meta-pills { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+      .pill { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; }
+      .pill-date { background:#EFEBE0; color:var(--text); }
+      .pill-type { background:#EDEDED; color:var(--text-muted); }
+      .pill-author { background:#E8EDF3; color:var(--primary); }
       .error-banner { background:#FBEDEA; color:var(--danger); padding:8px 14px; border-radius:8px; font-size:12px; margin:12px 24px 0; display:flex; align-items:center; gap:6px; }
       .icon-row { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); }
       .icon-row svg { color:var(--text-muted); flex-shrink:0; }
