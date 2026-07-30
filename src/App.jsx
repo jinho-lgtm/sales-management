@@ -200,7 +200,7 @@ function MainApp({ user }) {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [activityRaw, setActivityRaw] = useState([]);
-  const [yearActivity, setYearActivity] = useState([]);
+  const [yearHistoryDocs, setYearHistoryDocs] = useState([]);
   const [yearContracts, setYearContracts] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth());
   const [annualGoal, setAnnualGoal] = useState(null);
@@ -288,11 +288,11 @@ function MainApp({ user }) {
   }, []);
 
   useEffect(() => {
-    const yearStart = new Date(currentYear(), 0, 1);
-    const q = query(collection(db, 'activity'), where('at', '>=', yearStart));
+    const y = currentYear();
+    const q = query(collectionGroup(db, 'history'), where('date', '>=', `${y}-01-01`), where('date', '<=', `${y}-12-31`));
     const unsub = onSnapshot(q, snap => {
-      setYearActivity(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => a.kind === 'history' && a.action === 'created'));
-    }, err => setError(`연간 활동 데이터를 불러오지 못했어요 (${err.message}).`));
+      setYearHistoryDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => setError(`히스토리 요약 데이터를 불러오지 못했어요 (${err.message}). Firestore 콘솔에 색인 생성 링크가 떴다면 그걸 클릭해 색인을 만들어주세요.`));
     return unsub;
   }, []);
 
@@ -436,17 +436,31 @@ function MainApp({ user }) {
     setSaving(true);
     setError('');
     const payload = { ...historyDraft, content: historyDraft.content.trim() };
+    let recoveredAsNew = false;
     try {
       if (editingHistoryId) {
-        await updateDoc(doc(db, 'municipalities', selectedId, 'history', editingHistoryId), payload);
+        try {
+          await updateDoc(doc(db, 'municipalities', selectedId, 'history', editingHistoryId), payload);
+        } catch (inner) {
+          if (inner.code === 'not-found') {
+            // 수정하려던 항목이 그 사이 삭제됨 - 새 항목으로 저장해서 입력한 내용을 잃지 않게 함
+            await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+            recoveredAsNew = true;
+          } else {
+            throw inner;
+          }
+        }
       } else {
         await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
       }
       logActivity({
         muniId: selectedId, muniName: detail?.name || '', kind: 'history', category: payload.category, type: payload.type,
-        date: payload.date, action: editingHistoryId ? 'updated' : 'created', summary: payload.content.slice(0, 60),
+        date: payload.date, action: (editingHistoryId && !recoveredAsNew) ? 'updated' : 'created', summary: payload.content.slice(0, 60),
         author: payload.author || user.displayName || user.email,
       });
+      if (recoveredAsNew) {
+        setError('수정하려던 항목이 이미 삭제되어 있어서, 입력하신 내용은 새 히스토리로 저장했어요.');
+      }
       setEditingHistoryId(null);
       setHistoryDraft(emptyHistoryDraft(user.displayName));
     } catch (e) {
@@ -483,18 +497,31 @@ function MainApp({ user }) {
       year: pYear, month: pMonth, amount: Number(contractDraft.amount) || 0,
     };
     try {
+      let recoveredAsNew = false;
       if (editingContractId) {
-        await updateDoc(doc(db, 'municipalities', selectedId, 'contracts', editingContractId), payload);
+        try {
+          await updateDoc(doc(db, 'municipalities', selectedId, 'contracts', editingContractId), payload);
+        } catch (inner) {
+          if (inner.code === 'not-found') {
+            await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+            recoveredAsNew = true;
+          } else {
+            throw inner;
+          }
+        }
       } else {
         await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
       }
       logActivity({
         muniId: selectedId, muniName: detail?.name || '', kind: 'contract', category: payload.category,
         year: payload.year, month: payload.month, amount: payload.amount,
-        action: editingContractId ? 'updated' : 'created',
+        action: (editingContractId && !recoveredAsNew) ? 'updated' : 'created',
         summary: `${payload.name} (${payload.amount.toLocaleString('ko-KR')}원)`,
         author: user.displayName || user.email,
       });
+      if (recoveredAsNew) {
+        setError('수정하려던 항목이 이미 삭제되어 있어서, 입력하신 내용은 새 용역 항목으로 저장했어요.');
+      }
       setEditingContractId(null);
       setContractDraft(emptyContractDraft());
     } catch (e) {
@@ -527,9 +554,9 @@ function MainApp({ user }) {
     const tb = b.at?.toDate ? b.at.toDate().getTime() : 0;
     return tb - ta;
   });
-  const monthActivity = yearActivity.filter(a => {
-    if (!a.date) return false;
-    const [y, m] = a.date.split('-').map(Number);
+  const monthActivity = yearHistoryDocs.filter(h => {
+    if (!h.date) return false;
+    const [y, m] = h.date.split('-').map(Number);
     return y === currentYear() && m === selectedMonth;
   });
   const monthByCategory = {};
@@ -865,8 +892,15 @@ function StatCard({ label, actual, target, format }) {
     <div className="stat-card">
       <div className="stat-label">{label}</div>
       <div className="stat-value" style={{ color: done ? '#3F7A57' : '#1C2B45' }}>{fmt(a)}</div>
-      {t > 0 && <div className="stat-target">목표 {fmt(t)} · {pct}%</div>}
-      {t > 0 && <GoalBar count={a} target={t} />}
+      {t > 0 && (
+        <>
+          <div className="stat-target">목표 {fmt(t)}</div>
+          <GoalBar count={a} target={t} />
+          <div className="stat-status" style={{ color: done ? '#3F7A57' : '#B8862E' }}>
+            {done ? `✓ 목표 달성 (${pct}%)` : `${pct}% 달성 · ${fmt(t - a)} 남음`}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1170,10 +1204,11 @@ function GlobalStyle() {
       .goal-bar-track { background:var(--bg); border-radius:20px; height:7px; margin-top:8px; overflow:hidden; }
       .goal-bar-fill { height:100%; border-radius:20px; transition:width 0.3s; }
       .stat-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
-      .stat-card { border:1px solid var(--border); border-radius:12px; padding:18px; background:var(--surface); }
+      .stat-card { border:1px solid var(--border); border-radius:12px; padding:20px; background:var(--surface); }
       .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:10px; }
-      .stat-value { font-size:34px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.15; }
-      .stat-target { font-size:12px; color:var(--text-muted); margin-top:6px; }
+      .stat-value { font-size:42px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.1; }
+      .stat-target { font-size:12px; color:var(--text-muted); margin-top:8px; }
+      .stat-status { font-size:13px; font-weight:700; margin-top:6px; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
       .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
       .contract-row:last-child { border-bottom:none; }
