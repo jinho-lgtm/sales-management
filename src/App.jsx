@@ -4,7 +4,7 @@ import {
   ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download, Home,
 } from 'lucide-react';
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs,
+  collection, collectionGroup, doc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs,
 } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithPopup, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
@@ -97,8 +97,10 @@ function emptyHistoryDraft(defaultAuthor) {
   return { category: HISTORY_CATEGORIES[0].label, date: new Date().toISOString().slice(0, 10), type: '방문', author: defaultAuthor || '', content: '' };
 }
 
+function pad2(n) { return String(n).padStart(2, '0'); }
 function emptyContractDraft() {
-  return { category: CONTRACT_CATEGORIES[0], name: '', year: String(new Date().getFullYear()), amount: '', memo: '' };
+  const now = new Date();
+  return { category: CONTRACT_CATEGORIES[0], name: '', period: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}`, amount: '', memo: '' };
 }
 
 // 연간/월간 목표 문서 키
@@ -106,7 +108,12 @@ function currentYear() { return new Date().getFullYear(); }
 function currentMonth() { return new Date().getMonth() + 1; }
 function monthlyGoalId(year, month) { return `${year}-${month}`; }
 function emptyPeriodGoalDraft() {
-  return { fundingTarget: '', fundingActual: '', wegiveTarget: '', wegivepayTarget: '', revenueTarget: '', revenueActual: '' };
+  return {
+    fundingTarget: '', fundingActual: '',
+    councilTarget: '', wegiveTarget: '', wegivepayTarget: '',
+    currencyTarget: '', currencyActual: '',
+    revenueTarget: '',
+  };
 }
 
 // ---------- 인증 ----------
@@ -194,6 +201,7 @@ function MainApp({ user }) {
   const [exporting, setExporting] = useState(false);
   const [activityRaw, setActivityRaw] = useState([]);
   const [yearActivity, setYearActivity] = useState([]);
+  const [yearContracts, setYearContracts] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState(currentMonth());
   const [annualGoal, setAnnualGoal] = useState(null);
   const [monthlyGoal, setMonthlyGoal] = useState(null);
@@ -229,7 +237,9 @@ function MainApp({ user }) {
     }, err => setError(`히스토리를 불러오지 못했어요 (${err.message}).`));
     const cq = query(collection(db, 'municipalities', selectedId, 'contracts'), orderBy('year', 'desc'));
     const unsubC = onSnapshot(cq, snap => {
-      setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.year - a.year) || ((b.month || 0) - (a.month || 0)));
+      setContracts(list);
     }, err => setError(`용역 현황을 불러오지 못했어요 (${err.message}).`));
     return () => { unsubH(); unsubC(); };
   }, [selectedId]);
@@ -287,6 +297,14 @@ function MainApp({ user }) {
   }, []);
 
   useEffect(() => {
+    const q = query(collectionGroup(db, 'contracts'), where('year', '==', currentYear()));
+    const unsub = onSnapshot(q, snap => {
+      setYearContracts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => setError(`매출 데이터를 불러오지 못했어요 (${err.message}). Firestore 콘솔에 색인 생성 링크가 떴다면 그걸 클릭해 색인을 만들어주세요.`));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     const unsub = onSnapshot(doc(db, 'annualGoals', String(currentYear())), snap => {
       setAnnualGoal(snap.exists() ? { id: snap.id, ...snap.data() } : null);
     }, err => setError(`연간 목표를 불러오지 못했어요 (${err.message}).`));
@@ -317,10 +335,12 @@ function MainApp({ user }) {
         year: currentYear(),
         fundingTarget: Number(annualDraft.fundingTarget) || 0,
         fundingActual: Number(annualDraft.fundingActual) || 0,
+        councilTarget: Number(annualDraft.councilTarget) || 0,
         wegiveTarget: Number(annualDraft.wegiveTarget) || 0,
         wegivepayTarget: Number(annualDraft.wegivepayTarget) || 0,
+        currencyTarget: Number(annualDraft.currencyTarget) || 0,
+        currencyActual: Number(annualDraft.currencyActual) || 0,
         revenueTarget: Number(annualDraft.revenueTarget) || 0,
-        revenueActual: Number(annualDraft.revenueActual) || 0,
         updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
       }, { merge: true });
       setEditingAnnual(false);
@@ -340,10 +360,12 @@ function MainApp({ user }) {
         year: currentYear(), month: selectedMonth,
         fundingTarget: Number(monthlyDraft.fundingTarget) || 0,
         fundingActual: Number(monthlyDraft.fundingActual) || 0,
+        councilTarget: Number(monthlyDraft.councilTarget) || 0,
         wegiveTarget: Number(monthlyDraft.wegiveTarget) || 0,
         wegivepayTarget: Number(monthlyDraft.wegivepayTarget) || 0,
+        currencyTarget: Number(monthlyDraft.currencyTarget) || 0,
+        currencyActual: Number(monthlyDraft.currencyActual) || 0,
         revenueTarget: Number(monthlyDraft.revenueTarget) || 0,
-        revenueActual: Number(monthlyDraft.revenueActual) || 0,
         updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
       }, { merge: true });
       setEditingMonthly(false);
@@ -422,7 +444,7 @@ function MainApp({ user }) {
       }
       logActivity({
         muniId: selectedId, muniName: detail?.name || '', kind: 'history', category: payload.category, type: payload.type,
-        action: editingHistoryId ? 'updated' : 'created', summary: payload.content.slice(0, 60),
+        date: payload.date, action: editingHistoryId ? 'updated' : 'created', summary: payload.content.slice(0, 60),
         author: payload.author || user.displayName || user.email,
       });
       setEditingHistoryId(null);
@@ -444,7 +466,7 @@ function MainApp({ user }) {
   // ---- 용역 ----
   function startEditContract(c) {
     setEditingContractId(c.id);
-    setContractDraft({ category: c.category, name: c.name, year: c.year, amount: c.amount, memo: c.memo || '' });
+    setContractDraft({ category: c.category, name: c.name, period: `${c.year}-${pad2(c.month || 1)}`, amount: c.amount, memo: c.memo || '' });
   }
   function cancelEditContract() {
     setEditingContractId(null);
@@ -455,7 +477,11 @@ function MainApp({ user }) {
     if (!contractDraft.name.trim()) { setError('용역명을 입력해주세요.'); return; }
     setSaving(true);
     setError('');
-    const payload = { ...contractDraft, name: contractDraft.name.trim(), amount: Number(contractDraft.amount) || 0 };
+    const [pYear, pMonth] = contractDraft.period.split('-').map(Number);
+    const payload = {
+      category: contractDraft.category, name: contractDraft.name.trim(), memo: contractDraft.memo,
+      year: pYear, month: pMonth, amount: Number(contractDraft.amount) || 0,
+    };
     try {
       if (editingContractId) {
         await updateDoc(doc(db, 'municipalities', selectedId, 'contracts', editingContractId), payload);
@@ -464,8 +490,9 @@ function MainApp({ user }) {
       }
       logActivity({
         muniId: selectedId, muniName: detail?.name || '', kind: 'contract', category: payload.category,
+        year: payload.year, month: payload.month, amount: payload.amount,
         action: editingContractId ? 'updated' : 'created',
-        summary: `${payload.name} (${Number(payload.amount || 0).toLocaleString('ko-KR')}원)`,
+        summary: `${payload.name} (${payload.amount.toLocaleString('ko-KR')}원)`,
         author: user.displayName || user.email,
       });
       setEditingContractId(null);
@@ -501,8 +528,9 @@ function MainApp({ user }) {
     return tb - ta;
   });
   const monthActivity = yearActivity.filter(a => {
-    const t = a.at?.toDate ? a.at.toDate() : null;
-    return t && t.getFullYear() === currentYear() && (t.getMonth() + 1) === selectedMonth;
+    if (!a.date) return false;
+    const [y, m] = a.date.split('-').map(Number);
+    return y === currentYear() && m === selectedMonth;
   });
   const monthByCategory = {};
   const monthByType = {};
@@ -510,9 +538,13 @@ function MainApp({ user }) {
     if (a.category) monthByCategory[a.category] = (monthByCategory[a.category] || 0) + 1;
     if (a.type) monthByType[a.type] = (monthByType[a.type] || 0) + 1;
   });
-  // 위기브/위기브페이 입점 지자체 수는 활동 로그가 아니라 지자체 현재 상태에서 직접 집계 - 항상 정확함
+  // 위기브/위기브페이/협의회 지자체 수는 활동 로그가 아니라 지자체 현재 상태에서 직접 집계 - 항상 정확함
+  const councilOnboardedCount = munis.filter(m => m.councilStage === '가입 완료').length;
   const wegiveOnboardedCount = munis.filter(m => m.wegiveStage === '입점 완료').length;
   const wegivepayOnboardedCount = munis.filter(m => m.wegivepayStage === '입점 완료').length;
+  // 매출액은 실제 용역(계약) 문서에서 직접 합산 - 수정해도 중복 집계되지 않는 정확한 값
+  const annualRevenueActual = yearContracts.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+  const monthlyRevenueActual = yearContracts.filter(c => c.month === selectedMonth).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
 
   return (
     <div className={`app-root ${selectedId || showForm ? 'has-selection' : ''}`}>
@@ -570,6 +602,8 @@ function MainApp({ user }) {
               monthlyGoal={monthlyGoal} editingMonthly={editingMonthly} setEditingMonthly={setEditingMonthly}
               monthlyDraft={monthlyDraft} setMonthlyDraft={setMonthlyDraft} onSaveMonthlyGoal={handleSaveMonthlyGoal}
               wegiveOnboardedCount={wegiveOnboardedCount} wegivepayOnboardedCount={wegivepayOnboardedCount}
+              councilOnboardedCount={councilOnboardedCount}
+              annualRevenueActual={annualRevenueActual} monthlyRevenueActual={monthlyRevenueActual}
               monthByCategory={monthByCategory} monthByType={monthByType}
               savingGoal={savingGoal}
               onJumpTo={(muniId, kind) => { setSelectedId(muniId); setTab(kind === 'contract' ? 'contracts' : 'history'); }}
@@ -752,8 +786,8 @@ function MainApp({ user }) {
                         </select>
                       </div>
                       <div className="form-field">
-                        <label>계약연도</label>
-                        <input value={contractDraft.year} onChange={e => setContractDraft({...contractDraft, year:e.target.value})} placeholder="예: 2026" />
+                        <label>계약 연월</label>
+                        <input type="month" value={contractDraft.period} onChange={e => setContractDraft({...contractDraft, period:e.target.value})} />
                       </div>
                       <div className="form-field full">
                         <label>용역명</label>
@@ -783,13 +817,13 @@ function MainApp({ user }) {
                   ) : (
                     <div className="contract-table">
                       <div className="contract-row contract-head">
-                        <span>구분</span><span>용역명</span><span>연도</span><span>계약금액</span><span>비고</span><span></span>
+                        <span>구분</span><span>용역명</span><span>연월</span><span>계약금액</span><span>비고</span><span></span>
                       </div>
                       {contracts.map(c => (
                         <div key={c.id} className="contract-row">
                           <span>{c.category}</span>
                           <span>{c.name}</span>
-                          <span>{c.year}</span>
+                          <span>{c.year}-{pad2(c.month || 1)}</span>
                           <span>{Number(c.amount || 0).toLocaleString('ko-KR')}원</span>
                           <span className="muted">{c.memo || '-'}</span>
                           <span className="history-actions">
@@ -837,12 +871,13 @@ function StatCard({ label, actual, target, format }) {
   );
 }
 
-function PeriodGoalSection({ label, goal, editing, setEditing, draft, setDraft, onSave, wegiveActual, wegivepayActual, savingGoal }) {
+function PeriodGoalSection({ label, goal, editing, setEditing, draft, setDraft, onSave, councilActual, wegiveActual, wegivepayActual, revenueActual, savingGoal }) {
   function openEdit() {
     setDraft(goal ? {
       fundingTarget: goal.fundingTarget || '', fundingActual: goal.fundingActual || '',
-      wegiveTarget: goal.wegiveTarget || '', wegivepayTarget: goal.wegivepayTarget || '',
-      revenueTarget: goal.revenueTarget || '', revenueActual: goal.revenueActual || '',
+      councilTarget: goal.councilTarget || '', wegiveTarget: goal.wegiveTarget || '', wegivepayTarget: goal.wegivepayTarget || '',
+      currencyTarget: goal.currencyTarget || '', currencyActual: goal.currencyActual || '',
+      revenueTarget: goal.revenueTarget || '',
     } : emptyPeriodGoalDraft());
     setEditing(true);
   }
@@ -854,12 +889,14 @@ function PeriodGoalSection({ label, goal, editing, setEditing, draft, setDraft, 
           <div className="form-grid">
             <div className="form-field"><label>모금액 목표(원)</label><input type="number" value={draft.fundingTarget} onChange={e=>setDraft({...draft, fundingTarget:e.target.value})} placeholder="예: 500000000" /></div>
             <div className="form-field"><label>모금액 실적(원)</label><input type="number" value={draft.fundingActual} onChange={e=>setDraft({...draft, fundingActual:e.target.value})} placeholder="예: 320000000" /></div>
+            <div className="form-field"><label>협의회 회원 지자체 목표(개)</label><input type="number" value={draft.councilTarget} onChange={e=>setDraft({...draft, councilTarget:e.target.value})} placeholder="예: 40" /></div>
             <div className="form-field"><label>위기브 입점 목표(개)</label><input type="number" value={draft.wegiveTarget} onChange={e=>setDraft({...draft, wegiveTarget:e.target.value})} placeholder="예: 60" /></div>
             <div className="form-field"><label>위기브페이 입점 목표(개)</label><input type="number" value={draft.wegivepayTarget} onChange={e=>setDraft({...draft, wegivepayTarget:e.target.value})} placeholder="예: 30" /></div>
+            <div className="form-field"><label>위기브페이 발행액 목표(원)</label><input type="number" value={draft.currencyTarget} onChange={e=>setDraft({...draft, currencyTarget:e.target.value})} placeholder="예: 200000000" /></div>
+            <div className="form-field"><label>위기브페이 발행액 실적(원)</label><input type="number" value={draft.currencyActual} onChange={e=>setDraft({...draft, currencyActual:e.target.value})} placeholder="예: 90000000" /></div>
             <div className="form-field"><label>매출액 목표(원)</label><input type="number" value={draft.revenueTarget} onChange={e=>setDraft({...draft, revenueTarget:e.target.value})} placeholder="예: 80000000" /></div>
-            <div className="form-field"><label>매출액 실적(원)</label><input type="number" value={draft.revenueActual} onChange={e=>setDraft({...draft, revenueActual:e.target.value})} placeholder="예: 45000000" /></div>
           </div>
-          <div style={{fontSize:11, color:'#6B7280', margin:'-2px 0 10px'}}>위기브·위기브페이 입점 지자체 수의 "실적"은 지자체 현황에서 자동 집계돼요 (목표만 입력하시면 됩니다).</div>
+          <div style={{fontSize:11, color:'#6B7280', margin:'-2px 0 10px'}}>협의회·위기브·위기브페이 입점 지자체 수와 매출액의 "실적"은 자동 집계돼요 (목표만 입력하시면 됩니다).</div>
           <div className="form-actions">
             <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
             <button type="button" className="btn-secondary" onClick={() => setEditing(false)}><X size={14}/> 취소</button>
@@ -872,9 +909,11 @@ function PeriodGoalSection({ label, goal, editing, setEditing, draft, setDraft, 
           </div>
           <div className="stat-grid" style={{marginBottom:28}}>
             <StatCard label="모금액" actual={goal?.fundingActual} target={goal?.fundingTarget} format="currency" />
+            <StatCard label="협의회 회원 지자체" actual={councilActual} target={goal?.councilTarget} format="count" />
             <StatCard label="위기브 입점 지자체" actual={wegiveActual} target={goal?.wegiveTarget} format="count" />
             <StatCard label="위기브페이 입점 지자체" actual={wegivepayActual} target={goal?.wegivepayTarget} format="count" />
-            <StatCard label="매출액" actual={goal?.revenueActual} target={goal?.revenueTarget} format="currency" />
+            <StatCard label="위기브페이 발행액" actual={goal?.currencyActual} target={goal?.currencyTarget} format="currency" />
+            <StatCard label="매출액" actual={revenueActual} target={goal?.revenueTarget} format="currency" />
           </div>
         </>
       )}
@@ -888,7 +927,8 @@ function Dashboard(props) {
     annualGoal, editingAnnual, setEditingAnnual, annualDraft, setAnnualDraft, onSaveAnnualGoal,
     selectedMonth, setSelectedMonth,
     monthlyGoal, editingMonthly, setEditingMonthly, monthlyDraft, setMonthlyDraft, onSaveMonthlyGoal,
-    wegiveOnboardedCount, wegivepayOnboardedCount,
+    councilOnboardedCount, wegiveOnboardedCount, wegivepayOnboardedCount,
+    annualRevenueActual, monthlyRevenueActual,
     monthByCategory, monthByType, savingGoal, onJumpTo,
   } = props;
 
@@ -900,7 +940,8 @@ function Dashboard(props) {
         label={`연간 목표 · ${currentYear()}년`}
         goal={annualGoal} editing={editingAnnual} setEditing={setEditingAnnual}
         draft={annualDraft} setDraft={setAnnualDraft} onSave={onSaveAnnualGoal}
-        wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        councilActual={councilOnboardedCount} wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        revenueActual={annualRevenueActual}
         savingGoal={savingGoal}
       />
 
@@ -914,7 +955,8 @@ function Dashboard(props) {
         label={`${selectedMonth}월 목표`}
         goal={monthlyGoal} editing={editingMonthly} setEditing={setEditingMonthly}
         draft={monthlyDraft} setDraft={setMonthlyDraft} onSave={onSaveMonthlyGoal}
-        wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        councilActual={councilOnboardedCount} wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        revenueActual={monthlyRevenueActual}
         savingGoal={savingGoal}
       />
 
@@ -1127,11 +1169,11 @@ function GlobalStyle() {
       .goal-meta { color:var(--text-muted); font-size:12px; }
       .goal-bar-track { background:var(--bg); border-radius:20px; height:7px; margin-top:8px; overflow:hidden; }
       .goal-bar-fill { height:100%; border-radius:20px; transition:width 0.3s; }
-      .stat-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; }
-      .stat-card { border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); }
-      .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px; }
-      .stat-value { font-size:26px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; }
-      .stat-target { font-size:11px; color:var(--text-muted); margin-top:4px; }
+      .stat-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
+      .stat-card { border:1px solid var(--border); border-radius:12px; padding:18px; background:var(--surface); }
+      .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:10px; }
+      .stat-value { font-size:34px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.15; }
+      .stat-target { font-size:12px; color:var(--text-muted); margin-top:6px; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
       .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
       .contract-row:last-child { border-bottom:none; }
@@ -1147,7 +1189,7 @@ function GlobalStyle() {
         .detail { padding:18px 16px; }
         .info-grid, .form-grid { grid-template-columns:1fr; }
         .stage-grid { grid-template-columns:1fr; }
-        .stat-grid { grid-template-columns:1fr 1fr; }
+        .stat-grid { grid-template-columns:1fr; }
         .contract-row { grid-template-columns:1fr; }
         .back-btn { display:flex; margin-bottom:14px; }
       }
