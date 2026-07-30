@@ -415,6 +415,8 @@ function MainApp({ user }) {
     setError('');
     try {
       await deleteDoc(doc(db, 'municipalities', selectedId));
+      const logs = await getDocs(query(collection(db, 'activity'), where('muniId', '==', selectedId)));
+      await Promise.all(logs.docs.map(d => deleteDoc(d.ref)));
       setSelectedId(null);
     } catch (e) {
       setError(`삭제에 실패했어요 (${e.message}).`);
@@ -437,6 +439,7 @@ function MainApp({ user }) {
     setError('');
     const payload = { ...historyDraft, content: historyDraft.content.trim() };
     let recoveredAsNew = false;
+    let historyId = editingHistoryId;
     try {
       if (editingHistoryId) {
         try {
@@ -444,17 +447,19 @@ function MainApp({ user }) {
         } catch (inner) {
           if (inner.code === 'not-found') {
             // 수정하려던 항목이 그 사이 삭제됨 - 새 항목으로 저장해서 입력한 내용을 잃지 않게 함
-            await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+            const ref = await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+            historyId = ref.id;
             recoveredAsNew = true;
           } else {
             throw inner;
           }
         }
       } else {
-        await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+        const ref = await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+        historyId = ref.id;
       }
       logActivity({
-        muniId: selectedId, muniName: detail?.name || '', kind: 'history', category: payload.category, type: payload.type,
+        muniId: selectedId, muniName: detail?.name || '', kind: 'history', historyId, category: payload.category, type: payload.type,
         date: payload.date, action: (editingHistoryId && !recoveredAsNew) ? 'updated' : 'created', summary: payload.content.slice(0, 60),
         author: payload.author || user.displayName || user.email,
       });
@@ -472,6 +477,9 @@ function MainApp({ user }) {
     if (!window.confirm('이 히스토리를 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'municipalities', selectedId, 'history', id));
+      // 이 항목을 가리키던 "최근 활동" 로그도 함께 정리해서 대시보드에 유령 항목이 안 남게 한다.
+      const logs = await getDocs(query(collection(db, 'activity'), where('historyId', '==', id)));
+      await Promise.all(logs.docs.map(d => deleteDoc(d.ref)));
     } catch (e) {
       setError(`히스토리 삭제에 실패했어요 (${e.message}).`);
     }
@@ -496,6 +504,7 @@ function MainApp({ user }) {
       category: contractDraft.category, name: contractDraft.name.trim(), memo: contractDraft.memo,
       year: pYear, month: pMonth, amount: Number(contractDraft.amount) || 0,
     };
+    let contractId = editingContractId;
     try {
       let recoveredAsNew = false;
       if (editingContractId) {
@@ -503,17 +512,19 @@ function MainApp({ user }) {
           await updateDoc(doc(db, 'municipalities', selectedId, 'contracts', editingContractId), payload);
         } catch (inner) {
           if (inner.code === 'not-found') {
-            await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+            const ref = await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+            contractId = ref.id;
             recoveredAsNew = true;
           } else {
             throw inner;
           }
         }
       } else {
-        await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+        const ref = await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+        contractId = ref.id;
       }
       logActivity({
-        muniId: selectedId, muniName: detail?.name || '', kind: 'contract', category: payload.category,
+        muniId: selectedId, muniName: detail?.name || '', kind: 'contract', contractId, category: payload.category,
         year: payload.year, month: payload.month, amount: payload.amount,
         action: (editingContractId && !recoveredAsNew) ? 'updated' : 'created',
         summary: `${payload.name} (${payload.amount.toLocaleString('ko-KR')}원)`,
@@ -533,6 +544,8 @@ function MainApp({ user }) {
     if (!window.confirm('이 용역 항목을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'municipalities', selectedId, 'contracts', id));
+      const logs = await getDocs(query(collection(db, 'activity'), where('contractId', '==', id)));
+      await Promise.all(logs.docs.map(d => deleteDoc(d.ref)));
     } catch (e) {
       setError(`용역 항목 삭제에 실패했어요 (${e.message}).`);
     }
