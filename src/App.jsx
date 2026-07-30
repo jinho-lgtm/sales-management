@@ -105,10 +105,9 @@ function emptyContractDraft() {
 function currentYear() { return new Date().getFullYear(); }
 function currentMonth() { return new Date().getMonth() + 1; }
 function monthlyGoalId(year, month) { return `${year}-${month}`; }
-function emptyMonthlyDraft() { return { title: '', category: '전체', target: '' }; }
-function emptyAnnualDraft() { return { title: '', category: '전체', target: '' }; }
-function emptyKeyActivityDraft() { return { label: '', category: '전체', historyType: '전체', targetCount: '' }; }
-function uid2() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function emptyPeriodGoalDraft() {
+  return { fundingTarget: '', fundingActual: '', wegiveTarget: '', wegivepayTarget: '', revenueTarget: '', revenueActual: '' };
+}
 
 // ---------- 인증 ----------
 
@@ -199,10 +198,9 @@ function MainApp({ user }) {
   const [annualGoal, setAnnualGoal] = useState(null);
   const [monthlyGoal, setMonthlyGoal] = useState(null);
   const [editingAnnual, setEditingAnnual] = useState(false);
-  const [annualDraft, setAnnualDraft] = useState(emptyAnnualDraft());
+  const [annualDraft, setAnnualDraft] = useState(emptyPeriodGoalDraft());
   const [editingMonthly, setEditingMonthly] = useState(false);
-  const [monthlyDraft, setMonthlyDraft] = useState(emptyMonthlyDraft());
-  const [keyActivityDraft, setKeyActivityDraft] = useState(emptyKeyActivityDraft());
+  const [monthlyDraft, setMonthlyDraft] = useState(emptyPeriodGoalDraft());
   const [savingGoal, setSavingGoal] = useState(false);
 
   const detail = munis.find(m => m.id === selectedId) || null;
@@ -312,13 +310,18 @@ function MainApp({ user }) {
 
   async function handleSaveAnnualGoal(e) {
     if (e && e.preventDefault) e.preventDefault();
-    if (!annualDraft.title.trim()) { setError('연간 목표 내용을 입력해주세요.'); return; }
     setSavingGoal(true);
     setError('');
     try {
       await setDoc(doc(db, 'annualGoals', String(currentYear())), {
-        year: currentYear(), title: annualDraft.title.trim(), category: annualDraft.category,
-        target: Number(annualDraft.target) || 0, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
+        year: currentYear(),
+        fundingTarget: Number(annualDraft.fundingTarget) || 0,
+        fundingActual: Number(annualDraft.fundingActual) || 0,
+        wegiveTarget: Number(annualDraft.wegiveTarget) || 0,
+        wegivepayTarget: Number(annualDraft.wegivepayTarget) || 0,
+        revenueTarget: Number(annualDraft.revenueTarget) || 0,
+        revenueActual: Number(annualDraft.revenueActual) || 0,
+        updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
       }, { merge: true });
       setEditingAnnual(false);
     } catch (e) {
@@ -329,59 +332,25 @@ function MainApp({ user }) {
 
   async function handleSaveMonthlyGoal(e) {
     if (e && e.preventDefault) e.preventDefault();
-    if (!monthlyDraft.title.trim()) { setError('월간 목표 내용을 입력해주세요.'); return; }
     setSavingGoal(true);
     setError('');
     const id = monthlyGoalId(currentYear(), selectedMonth);
-    const payload = {
-      year: currentYear(), month: selectedMonth, title: monthlyDraft.title.trim(), category: monthlyDraft.category,
-      target: Number(monthlyDraft.target) || 0, keyActivities: monthlyGoal?.keyActivities || [],
-      updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
-    };
     try {
-      await setDocSafe(id, payload);
+      await setDoc(doc(db, 'monthlyGoals', id), {
+        year: currentYear(), month: selectedMonth,
+        fundingTarget: Number(monthlyDraft.fundingTarget) || 0,
+        fundingActual: Number(monthlyDraft.fundingActual) || 0,
+        wegiveTarget: Number(monthlyDraft.wegiveTarget) || 0,
+        wegivepayTarget: Number(monthlyDraft.wegivepayTarget) || 0,
+        revenueTarget: Number(monthlyDraft.revenueTarget) || 0,
+        revenueActual: Number(monthlyDraft.revenueActual) || 0,
+        updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
+      }, { merge: true });
       setEditingMonthly(false);
     } catch (e) {
       setError(`월간 목표 저장에 실패했어요 (${e.message}).`);
     }
     setSavingGoal(false);
-  }
-
-  // monthlyGoals 문서가 없을 수도 있으므로 setDoc(merge)로 항상 안전하게 저장한다.
-  async function setDocSafe(id, payload) {
-    await setDoc(doc(db, 'monthlyGoals', id), payload, { merge: true });
-  }
-
-  async function handleAddKeyActivity(e) {
-    if (e && e.preventDefault) e.preventDefault();
-    if (!keyActivityDraft.label.trim()) { setError('핵심활동 이름을 입력해주세요.'); return; }
-    setSavingGoal(true);
-    setError('');
-    const id = monthlyGoalId(currentYear(), selectedMonth);
-    const newItem = { id: uid2(), label: keyActivityDraft.label.trim(), category: keyActivityDraft.category, historyType: keyActivityDraft.historyType, targetCount: Number(keyActivityDraft.targetCount) || 0 };
-    const nextActivities = [...(monthlyGoal?.keyActivities || []), newItem];
-    try {
-      await setDocSafe(id, {
-        year: currentYear(), month: selectedMonth,
-        title: monthlyGoal?.title || '', category: monthlyGoal?.category || '전체', target: monthlyGoal?.target || 0,
-        keyActivities: nextActivities, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp(),
-      });
-      setKeyActivityDraft(emptyKeyActivityDraft());
-    } catch (e) {
-      setError(`핵심활동 저장에 실패했어요 (${e.message}).`);
-    }
-    setSavingGoal(false);
-  }
-
-  async function handleDeleteKeyActivity(itemId) {
-    if (!window.confirm('이 핵심활동을 삭제할까요?')) return;
-    const id = monthlyGoalId(currentYear(), selectedMonth);
-    const nextActivities = (monthlyGoal?.keyActivities || []).filter(k => k.id !== itemId);
-    try {
-      await setDocSafe(id, { ...monthlyGoal, keyActivities: nextActivities, updatedBy: user.displayName || user.email, updatedAt: serverTimestamp() });
-    } catch (e) {
-      setError(`핵심활동 삭제에 실패했어요 (${e.message}).`);
-    }
   }
 
   function openAddForm() {
@@ -541,15 +510,9 @@ function MainApp({ user }) {
     if (a.category) monthByCategory[a.category] = (monthByCategory[a.category] || 0) + 1;
     if (a.type) monthByType[a.type] = (monthByType[a.type] || 0) + 1;
   });
-  const monthlyGoalCount = monthActivity.filter(a => !monthlyGoal?.category || monthlyGoal.category === '전체' || a.category === monthlyGoal.category).length;
-  const annualGoalCount = yearActivity.filter(a => !annualGoal?.category || annualGoal.category === '전체' || a.category === annualGoal.category).length;
-  const keyActivitiesWithCount = (monthlyGoal?.keyActivities || []).map(k => ({
-    ...k,
-    count: monthActivity.filter(a =>
-      (k.category === '전체' || a.category === k.category) &&
-      (k.historyType === '전체' || a.type === k.historyType)
-    ).length,
-  }));
+  // 위기브/위기브페이 입점 지자체 수는 활동 로그가 아니라 지자체 현재 상태에서 직접 집계 - 항상 정확함
+  const wegiveOnboardedCount = munis.filter(m => m.wegiveStage === '입점 완료').length;
+  const wegivepayOnboardedCount = munis.filter(m => m.wegivepayStage === '입점 완료').length;
 
   return (
     <div className={`app-root ${selectedId || showForm ? 'has-selection' : ''}`}>
@@ -603,14 +566,10 @@ function MainApp({ user }) {
               activityFeed={activityFeed}
               annualGoal={annualGoal} editingAnnual={editingAnnual} setEditingAnnual={setEditingAnnual}
               annualDraft={annualDraft} setAnnualDraft={setAnnualDraft} onSaveAnnualGoal={handleSaveAnnualGoal}
-              annualGoalCount={annualGoalCount}
               selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
               monthlyGoal={monthlyGoal} editingMonthly={editingMonthly} setEditingMonthly={setEditingMonthly}
               monthlyDraft={monthlyDraft} setMonthlyDraft={setMonthlyDraft} onSaveMonthlyGoal={handleSaveMonthlyGoal}
-              monthlyGoalCount={monthlyGoalCount}
-              keyActivities={keyActivitiesWithCount}
-              keyActivityDraft={keyActivityDraft} setKeyActivityDraft={setKeyActivityDraft}
-              onAddKeyActivity={handleAddKeyActivity} onDeleteKeyActivity={handleDeleteKeyActivity}
+              wegiveOnboardedCount={wegiveOnboardedCount} wegivepayOnboardedCount={wegivepayOnboardedCount}
               monthByCategory={monthByCategory} monthByType={monthByType}
               savingGoal={savingGoal}
               onJumpTo={(muniId, kind) => { setSelectedId(muniId); setTab(kind === 'contract' ? 'contracts' : 'history'); }}
@@ -862,64 +821,88 @@ function GoalBar({ count, target }) {
   );
 }
 
+function StatCard({ label, actual, target, format }) {
+  const a = Number(actual) || 0;
+  const t = Number(target) || 0;
+  const pct = t > 0 ? Math.min(100, Math.round((a / t) * 100)) : null;
+  const done = t > 0 && a >= t;
+  const fmt = n => format === 'currency' ? `${n.toLocaleString('ko-KR')}원` : `${n.toLocaleString('ko-KR')}개`;
+  return (
+    <div className="stat-card">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ color: done ? '#3F7A57' : '#1C2B45' }}>{fmt(a)}</div>
+      {t > 0 && <div className="stat-target">목표 {fmt(t)} · {pct}%</div>}
+      {t > 0 && <GoalBar count={a} target={t} />}
+    </div>
+  );
+}
+
+function PeriodGoalSection({ label, goal, editing, setEditing, draft, setDraft, onSave, wegiveActual, wegivepayActual, savingGoal }) {
+  function openEdit() {
+    setDraft(goal ? {
+      fundingTarget: goal.fundingTarget || '', fundingActual: goal.fundingActual || '',
+      wegiveTarget: goal.wegiveTarget || '', wegivepayTarget: goal.wegivepayTarget || '',
+      revenueTarget: goal.revenueTarget || '', revenueActual: goal.revenueActual || '',
+    } : emptyPeriodGoalDraft());
+    setEditing(true);
+  }
+  return (
+    <>
+      <div className="section-title">{label}</div>
+      {editing ? (
+        <form className="history-form" onSubmit={onSave}>
+          <div className="form-grid">
+            <div className="form-field"><label>모금액 목표(원)</label><input type="number" value={draft.fundingTarget} onChange={e=>setDraft({...draft, fundingTarget:e.target.value})} placeholder="예: 500000000" /></div>
+            <div className="form-field"><label>모금액 실적(원)</label><input type="number" value={draft.fundingActual} onChange={e=>setDraft({...draft, fundingActual:e.target.value})} placeholder="예: 320000000" /></div>
+            <div className="form-field"><label>위기브 입점 목표(개)</label><input type="number" value={draft.wegiveTarget} onChange={e=>setDraft({...draft, wegiveTarget:e.target.value})} placeholder="예: 60" /></div>
+            <div className="form-field"><label>위기브페이 입점 목표(개)</label><input type="number" value={draft.wegivepayTarget} onChange={e=>setDraft({...draft, wegivepayTarget:e.target.value})} placeholder="예: 30" /></div>
+            <div className="form-field"><label>매출액 목표(원)</label><input type="number" value={draft.revenueTarget} onChange={e=>setDraft({...draft, revenueTarget:e.target.value})} placeholder="예: 80000000" /></div>
+            <div className="form-field"><label>매출액 실적(원)</label><input type="number" value={draft.revenueActual} onChange={e=>setDraft({...draft, revenueActual:e.target.value})} placeholder="예: 45000000" /></div>
+          </div>
+          <div style={{fontSize:11, color:'#6B7280', margin:'-2px 0 10px'}}>위기브·위기브페이 입점 지자체 수의 "실적"은 지자체 현황에서 자동 집계돼요 (목표만 입력하시면 됩니다).</div>
+          <div className="form-actions">
+            <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditing(false)}><X size={14}/> 취소</button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <div style={{display:'flex', justifyContent:'flex-end', marginBottom:10}}>
+            <button className="btn-secondary" onClick={openEdit}><Edit3 size={13}/> 목표 수정</button>
+          </div>
+          <div className="stat-grid" style={{marginBottom:28}}>
+            <StatCard label="모금액" actual={goal?.fundingActual} target={goal?.fundingTarget} format="currency" />
+            <StatCard label="위기브 입점 지자체" actual={wegiveActual} target={goal?.wegiveTarget} format="count" />
+            <StatCard label="위기브페이 입점 지자체" actual={wegivepayActual} target={goal?.wegivepayTarget} format="count" />
+            <StatCard label="매출액" actual={goal?.revenueActual} target={goal?.revenueTarget} format="currency" />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function Dashboard(props) {
   const {
     activityFeed,
-    annualGoal, editingAnnual, setEditingAnnual, annualDraft, setAnnualDraft, onSaveAnnualGoal, annualGoalCount,
+    annualGoal, editingAnnual, setEditingAnnual, annualDraft, setAnnualDraft, onSaveAnnualGoal,
     selectedMonth, setSelectedMonth,
-    monthlyGoal, editingMonthly, setEditingMonthly, monthlyDraft, setMonthlyDraft, onSaveMonthlyGoal, monthlyGoalCount,
-    keyActivities, keyActivityDraft, setKeyActivityDraft, onAddKeyActivity, onDeleteKeyActivity,
+    monthlyGoal, editingMonthly, setEditingMonthly, monthlyDraft, setMonthlyDraft, onSaveMonthlyGoal,
+    wegiveOnboardedCount, wegivepayOnboardedCount,
     monthByCategory, monthByType, savingGoal, onJumpTo,
   } = props;
 
   const ACTION_LABEL = { history: { created: '히스토리 추가', updated: '히스토리 수정' }, contract: { created: '용역 등록', updated: '용역 수정' } };
 
-  function openAnnualEdit() {
-    setAnnualDraft(annualGoal ? { title: annualGoal.title, category: annualGoal.category, target: annualGoal.target || '' } : emptyAnnualDraft());
-    setEditingAnnual(true);
-  }
-  function openMonthlyEdit() {
-    setMonthlyDraft(monthlyGoal ? { title: monthlyGoal.title, category: monthlyGoal.category, target: monthlyGoal.target || '' } : emptyMonthlyDraft());
-    setEditingMonthly(true);
-  }
-
   return (
     <div>
-      <div className="section-title">연간 목표 · {currentYear()}년</div>
-      {editingAnnual ? (
-        <form className="history-form" onSubmit={onSaveAnnualGoal}>
-          <div className="form-grid">
-            <div className="form-field full"><label>연간 목표</label><input value={annualDraft.title} onChange={e=>setAnnualDraft({...annualDraft, title:e.target.value})} placeholder="예: 위기브 전국 100개 지자체 입점" /></div>
-            <div className="form-field"><label>사업</label>
-              <select value={annualDraft.category} onChange={e=>setAnnualDraft({...annualDraft, category:e.target.value})}>
-                <option value="전체">전체</option>
-                {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-              </select>
-            </div>
-            <div className="form-field"><label>목표 건수</label><input type="number" value={annualDraft.target} onChange={e=>setAnnualDraft({...annualDraft, target:e.target.value})} placeholder="예: 100" /></div>
-          </div>
-          <div className="form-actions">
-            <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditingAnnual(false)}><X size={14}/> 취소</button>
-          </div>
-        </form>
-      ) : annualGoal ? (
-        <div className="goal-card" style={{marginBottom:24}}>
-          <div className="goal-card-top">
-            <div>
-              <strong>{annualGoal.title}</strong>
-              <span className="goal-meta"> · {annualGoal.category}{annualGoal.target > 0 && ` · ${annualGoalCount}/${annualGoal.target}건`}</span>
-            </div>
-            <button className="btn-secondary" onClick={openAnnualEdit}><Edit3 size={13}/> 수정</button>
-          </div>
-          <GoalBar count={annualGoalCount} target={annualGoal.target} />
-        </div>
-      ) : (
-        <div style={{marginBottom:24}}>
-          <div style={{fontSize:13, color:'#6B7280', marginBottom:8}}>아직 {currentYear()}년 연간 목표가 없어요.</div>
-          <button className="btn-secondary" onClick={openAnnualEdit}><Plus size={13}/> 연간 목표 설정</button>
-        </div>
-      )}
+      <PeriodGoalSection
+        label={`연간 목표 · ${currentYear()}년`}
+        goal={annualGoal} editing={editingAnnual} setEditing={setEditingAnnual}
+        draft={annualDraft} setDraft={setAnnualDraft} onSave={onSaveAnnualGoal}
+        wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        savingGoal={savingGoal}
+      />
 
       <div className="section-title">월별 목표</div>
       <div className="filter-row">
@@ -927,85 +910,15 @@ function Dashboard(props) {
           <button key={label} className={`filter-chip ${selectedMonth===i+1?'active':''}`} onClick={() => setSelectedMonth(i+1)}>{label}</button>
         ))}
       </div>
+      <PeriodGoalSection
+        label={`${selectedMonth}월 목표`}
+        goal={monthlyGoal} editing={editingMonthly} setEditing={setEditingMonthly}
+        draft={monthlyDraft} setDraft={setMonthlyDraft} onSave={onSaveMonthlyGoal}
+        wegiveActual={wegiveOnboardedCount} wegivepayActual={wegivepayOnboardedCount}
+        savingGoal={savingGoal}
+      />
 
-      {editingMonthly ? (
-        <form className="history-form" onSubmit={onSaveMonthlyGoal}>
-          <div className="form-grid">
-            <div className="form-field full"><label>{selectedMonth}월 목표</label><input value={monthlyDraft.title} onChange={e=>setMonthlyDraft({...monthlyDraft, title:e.target.value})} placeholder="예: 협의회 신규 제안 5개 지자체" /></div>
-            <div className="form-field"><label>사업</label>
-              <select value={monthlyDraft.category} onChange={e=>setMonthlyDraft({...monthlyDraft, category:e.target.value})}>
-                <option value="전체">전체</option>
-                {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-              </select>
-            </div>
-            <div className="form-field"><label>목표 건수</label><input type="number" value={monthlyDraft.target} onChange={e=>setMonthlyDraft({...monthlyDraft, target:e.target.value})} placeholder="예: 5" /></div>
-          </div>
-          <div className="form-actions">
-            <button className="btn-primary" type="submit" disabled={savingGoal}><Save size={14}/> {savingGoal ? '저장 중…' : '저장'}</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditingMonthly(false)}><X size={14}/> 취소</button>
-          </div>
-        </form>
-      ) : monthlyGoal?.title ? (
-        <div className="goal-card" style={{marginBottom:16}}>
-          <div className="goal-card-top">
-            <div>
-              <strong>{monthlyGoal.title}</strong>
-              <span className="goal-meta"> · {monthlyGoal.category}{monthlyGoal.target > 0 && ` · ${monthlyGoalCount}/${monthlyGoal.target}건`}</span>
-            </div>
-            <button className="btn-secondary" onClick={openMonthlyEdit}><Edit3 size={13}/> 수정</button>
-          </div>
-          <GoalBar count={monthlyGoalCount} target={monthlyGoal.target} />
-        </div>
-      ) : (
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:13, color:'#6B7280', marginBottom:8}}>{selectedMonth}월 목표가 아직 없어요.</div>
-          <button className="btn-secondary" onClick={openMonthlyEdit}><Plus size={13}/> {selectedMonth}월 목표 설정</button>
-        </div>
-      )}
-
-      <div className="section-title">핵심활동 ({selectedMonth}월)</div>
-      <form className="history-form" onSubmit={onAddKeyActivity}>
-        <div className="form-grid">
-          <div className="form-field full"><label>핵심활동 이름</label><input value={keyActivityDraft.label} onChange={e=>setKeyActivityDraft({...keyActivityDraft, label:e.target.value})} placeholder="예: 지자체 방문" /></div>
-          <div className="form-field"><label>사업</label>
-            <select value={keyActivityDraft.category} onChange={e=>setKeyActivityDraft({...keyActivityDraft, category:e.target.value})}>
-              <option value="전체">전체</option>
-              {HISTORY_CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
-            </select>
-          </div>
-          <div className="form-field"><label>활동 유형</label>
-            <select value={keyActivityDraft.historyType} onChange={e=>setKeyActivityDraft({...keyActivityDraft, historyType:e.target.value})}>
-              <option value="전체">전체</option>
-              {HISTORY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div className="form-field"><label>목표 건수</label><input type="number" value={keyActivityDraft.targetCount} onChange={e=>setKeyActivityDraft({...keyActivityDraft, targetCount:e.target.value})} placeholder="예: 10" /></div>
-        </div>
-        <div className="form-actions">
-          <button className="btn-primary" type="submit" disabled={savingGoal}><Plus size={14}/> {savingGoal ? '저장 중…' : '핵심활동 추가'}</button>
-        </div>
-      </form>
-
-      {keyActivities.length === 0 ? (
-        <div style={{fontSize:13, color:'#6B7280', marginBottom:24}}>등록된 핵심활동이 없어요. 히스토리 입력 시 자동으로 건수가 집계돼요.</div>
-      ) : (
-        <div style={{display:'flex', flexDirection:'column', gap:10, marginBottom:28}}>
-          {keyActivities.map(k => (
-            <div key={k.id} className="goal-card">
-              <div className="goal-card-top">
-                <div>
-                  <strong>{k.label}</strong>
-                  <span className="goal-meta"> · {k.category} · {k.historyType}{k.targetCount > 0 && ` · ${k.count}/${k.targetCount}건`}</span>
-                </div>
-                <button className="icon-btn" onClick={() => onDeleteKeyActivity(k.id)} title="삭제"><Trash2 size={13}/></button>
-              </div>
-              <GoalBar count={k.count} target={k.targetCount} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="section-title">{selectedMonth}월 활동 요약 (자동 집계)</div>
+      <div className="section-title">{selectedMonth}월 히스토리 요약 (자동 집계)</div>
       <div className="stage-grid" style={{marginBottom:24}}>
         <div className="stage-card">
           <div className="stage-card-label">사업별 히스토리 건수</div>
@@ -1214,6 +1127,11 @@ function GlobalStyle() {
       .goal-meta { color:var(--text-muted); font-size:12px; }
       .goal-bar-track { background:var(--bg); border-radius:20px; height:7px; margin-top:8px; overflow:hidden; }
       .goal-bar-fill { height:100%; border-radius:20px; transition:width 0.3s; }
+      .stat-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; }
+      .stat-card { border:1px solid var(--border); border-radius:12px; padding:16px; background:var(--surface); }
+      .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:8px; }
+      .stat-value { font-size:26px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; }
+      .stat-target { font-size:11px; color:var(--text-muted); margin-top:4px; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
       .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
       .contract-row:last-child { border-bottom:none; }
@@ -1229,6 +1147,7 @@ function GlobalStyle() {
         .detail { padding:18px 16px; }
         .info-grid, .form-grid { grid-template-columns:1fr; }
         .stage-grid { grid-template-columns:1fr; }
+        .stat-grid { grid-template-columns:1fr 1fr; }
         .contract-row { grid-template-columns:1fr; }
         .back-btn { display:flex; margin-bottom:14px; }
       }
