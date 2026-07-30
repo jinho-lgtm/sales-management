@@ -3,7 +3,7 @@ import { Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Tra
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
-import { onAuthStateChanged, signInWithRedirect, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
 
 const REGIONS = ['서울특별시','부산광역시','대구광역시','인천광역시','대전광역시','울산광역시','세종특별자치시','경기도','강원특별자치도','충청북도','충청남도','전북특별자치도','전남광주통합특별시','경상북도','경상남도','제주특별자치도'];
@@ -40,11 +40,15 @@ function emptyMuni() {
 
 function useAuthUser() {
   const [user, setUser] = useState(undefined); // undefined = 확인 중, null = 로그아웃 상태
+  const [redirectError, setRedirectError] = useState('');
+  useEffect(() => {
+    getRedirectResult(auth).catch(e => setRedirectError(`${e.code || ''} ${e.message}`));
+  }, []);
   useEffect(() => onAuthStateChanged(auth, setUser), []);
-  return user;
+  return { user, redirectError };
 }
 
-function SignInScreen() {
+function SignInScreen({ externalError }) {
   const [signingIn, setSigningIn] = useState(false);
   const [err, setErr] = useState('');
   async function handleSignIn() {
@@ -53,16 +57,17 @@ function SignInScreen() {
     try {
       await signInWithRedirect(auth, googleProvider);
     } catch (e) {
-      setErr('로그인에 실패했어요. 다시 시도해주세요.');
+      setErr(`${e.code || ''} ${e.message}`);
     }
     setSigningIn(false);
   }
+  const shownError = err || externalError;
   return (
     <div className="gate-screen">
       <Building2 size={40} strokeWidth={1.2} />
       <h2 className="serif">지자체 영업/대관 관리</h2>
       <p>회사 구글 계정으로 로그인하면 이용할 수 있어요.</p>
-      {err && <div className="error-banner"><AlertCircle size={14}/> {err}</div>}
+      {shownError && <div className="error-banner"><AlertCircle size={14}/> {shownError}</div>}
       <button className="btn-primary" onClick={handleSignIn} disabled={signingIn}>{signingIn ? '로그인 중…' : '구글 계정으로 로그인'}</button>
     </div>
   );
@@ -80,11 +85,11 @@ function AccessDenied({ user }) {
 }
 
 export default function Root() {
-  const user = useAuthUser();
+  const { user, redirectError } = useAuthUser();
   if (user === undefined) {
     return <div className="gate-screen"><Loader2 size={28} className="spin" /></div>;
   }
-  if (!user) return <SignInScreen />;
+  if (!user) return <SignInScreen externalError={redirectError} />;
   if (ALLOWED_EMAIL_DOMAIN && !(user.email || '').toLowerCase().endsWith('@' + ALLOWED_EMAIL_DOMAIN.toLowerCase())) {
     return <AccessDenied user={user} />;
   }
