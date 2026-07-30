@@ -891,15 +891,17 @@ function StatCard({ label, actual, target, format }) {
   return (
     <div className="stat-card">
       <div className="stat-label">{label}</div>
-      <div className="stat-value" style={{ color: done ? '#3F7A57' : '#1C2B45' }}>{fmt(a)}</div>
-      {t > 0 && (
+      <div className="stat-value">{t > 0 ? fmt(t) : fmt(a)}</div>
+      {t > 0 ? (
         <>
-          <div className="stat-target">목표 {fmt(t)}</div>
+          <div className="stat-target">실적 {fmt(a)}</div>
           <GoalBar count={a} target={t} />
           <div className="stat-status" style={{ color: done ? '#3F7A57' : '#B8862E' }}>
             {done ? `✓ 목표 달성 (${pct}%)` : `${pct}% 달성 · ${fmt(t - a)} 남음`}
           </div>
         </>
+      ) : (
+        <div className="stat-target">목표를 입력하면 진행률이 표시돼요</div>
       )}
     </div>
   );
@@ -1206,8 +1208,8 @@ function GlobalStyle() {
       .stat-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
       .stat-card { border:1px solid var(--border); border-radius:12px; padding:20px; background:var(--surface); }
       .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:10px; }
-      .stat-value { font-size:42px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.1; }
-      .stat-target { font-size:12px; color:var(--text-muted); margin-top:8px; }
+      .stat-value { font-size:42px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.1; color:var(--primary); }
+      .stat-target { font-size:20px; font-weight:700; color:var(--text-muted); margin-top:10px; }
       .stat-status { font-size:13px; font-weight:700; margin-top:6px; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
       .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
