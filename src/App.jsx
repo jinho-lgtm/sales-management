@@ -21,6 +21,7 @@ const TRACKS = [
     key: 'councilStage', contactPrefix: 'council',
     label: '지속가능관광지방정부협의회', short: '협의회',
     stages: [
+      { value: '미제안', color: '#ADB2B9' },
       { value: '제안 완료', color: '#8A8F98' },
       { value: '논의·검토 중', color: '#B8862E' },
       { value: '가입 완료', color: '#3F7A57' },
@@ -31,6 +32,7 @@ const TRACKS = [
     key: 'wegiveStage', contactPrefix: 'wegive',
     label: '위기브(고향사랑기부제)', short: '위기브',
     stages: [
+      { value: '미제안', color: '#ADB2B9' },
       { value: '제안 완료', color: '#8A8F98' },
       { value: '논의·검토 중', color: '#B8862E' },
       { value: '입점 완료', color: '#3F7A57' },
@@ -41,6 +43,7 @@ const TRACKS = [
     key: 'wegivepayStage', contactPrefix: 'wegivepay',
     label: '위기브페이(지역화폐)', short: '위기브페이',
     stages: [
+      { value: '미제안', color: '#ADB2B9' },
       { value: '제안 완료', color: '#8A8F98' },
       { value: '논의·검토 중', color: '#B8862E' },
       { value: '입점 완료', color: '#3F7A57' },
@@ -83,10 +86,10 @@ function emptyMuni() {
   return {
     name: '', region: REGIONS[0],
     headName: '', party: '', termCount: TERM_OPTIONS[0],
-    councilDept: '', councilContactName: '', councilContactPhone: '', councilContactEmail: '',
-    wegiveDept: '', wegiveContactName: '', wegiveContactPhone: '', wegiveContactEmail: '',
-    wegivepayDept: '', wegivepayContactName: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
-    councilStage: '제안 완료', wegiveStage: '제안 완료', wegivepayStage: '제안 완료',
+    councilDept: '', councilContactName: '', councilContactPosition: '', councilContactPhone: '', councilContactEmail: '',
+    wegiveDept: '', wegiveContactName: '', wegiveContactPosition: '', wegiveContactPhone: '', wegiveContactEmail: '',
+    wegivepayDept: '', wegivepayContactName: '', wegivepayContactPosition: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
+    councilStage: '미제안', wegiveStage: '미제안', wegivepayStage: '미제안',
     fundingLastYearTotal: '', fundingLastYearWegive: '', fundingThisYearTarget: '',
     currencyLastYearTotal: '', currencyThisYearPlanned: '', currencyWegivepayAmount: '',
     memo: '',
@@ -621,8 +624,8 @@ function MainApp({ user }) {
               <span className="region">{m.region}</span>
               <div className="mini-stamp-row">
                 {TRACKS.map(t => (
-                  <span key={t.key} className="mini-stamp" style={{color: stageColorFor(t, m[t.key])}} title={`${t.label}: ${m[t.key] || '제안 완료'}`}>
-                    {t.short} {m[t.key] || '제안 완료'}
+                  <span key={t.key} className="mini-stamp" style={{color: stageColorFor(t, m[t.key])}} title={`${t.label}: ${m[t.key] || '미제안'}`}>
+                    {t.short} {m[t.key] || '미제안'}
                   </span>
                 ))}
               </div>
@@ -690,7 +693,7 @@ function MainApp({ user }) {
                       <div key={t.key} className="stage-card">
                         <div className="stage-card-label">{t.label}</div>
                         <div className="icon-row"><Building2 size={13}/>{detail[`${t.contactPrefix}Dept`] || '미입력'}</div>
-                        <div className="icon-row"><User size={13}/>{detail[`${t.contactPrefix}ContactName`] || '미입력'}</div>
+                        <div className="icon-row"><User size={13}/>{detail[`${t.contactPrefix}ContactName`] || '미입력'}{detail[`${t.contactPrefix}ContactPosition`] && ` (${detail[`${t.contactPrefix}ContactPosition`]})`}</div>
                         <div className="icon-row"><Phone size={13}/>{detail[`${t.contactPrefix}ContactPhone`] || '미입력'}</div>
                         <div className="icon-row"><Mail size={13}/>{detail[`${t.contactPrefix}ContactEmail`] || '미입력'}</div>
                       </div>
@@ -702,7 +705,7 @@ function MainApp({ user }) {
                     {TRACKS.map(t => (
                       <div key={t.key} className="stage-card">
                         <div className="stage-card-label">{t.label}</div>
-                        <span className="stamp" style={{color: stageColorFor(t, detail[t.key])}}>{detail[t.key] || '제안 완료'}</span>
+                        <span className="stamp" style={{color: stageColorFor(t, detail[t.key])}}>{detail[t.key] || '미제안'}</span>
                       </div>
                     ))}
                   </div>
@@ -1087,6 +1090,7 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
           <React.Fragment key={t.key}>
             <div className="form-field"><label>{t.label} 담당 부서</label><input value={data[`${t.contactPrefix}Dept`]} onChange={e=>set(`${t.contactPrefix}Dept`, e.target.value)} placeholder="예: 정책기획과" /></div>
             <div className="form-field"><label>{t.label} 담당자</label><input value={data[`${t.contactPrefix}ContactName`]} onChange={e=>set(`${t.contactPrefix}ContactName`, e.target.value)} /></div>
+            <div className="form-field"><label>{t.label} 직책</label><input value={data[`${t.contactPrefix}ContactPosition`]} onChange={e=>set(`${t.contactPrefix}ContactPosition`, e.target.value)} placeholder="예: 주무관, 팀장" /></div>
             <div className="form-field"><label>{t.label} 연락처</label><input value={data[`${t.contactPrefix}ContactPhone`]} onChange={e=>set(`${t.contactPrefix}ContactPhone`, e.target.value)} placeholder="000-0000-0000" /></div>
             <div className="form-field full"><label>{t.label} 이메일</label><input value={data[`${t.contactPrefix}ContactEmail`]} onChange={e=>set(`${t.contactPrefix}ContactEmail`, e.target.value)} /></div>
           </React.Fragment>
