@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Trash2,
-  ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download,
+  ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download, Home,
 } from 'lucide-react';
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, setDoc, onSnapshot, query, orderBy, where, serverTimestamp, getDocs,
@@ -555,7 +555,7 @@ function MainApp({ user }) {
     <div className={`app-root ${selectedId || showForm ? 'has-selection' : ''}`}>
       <GlobalStyle />
       <div className="app-header">
-        <div className="app-title">
+        <div className="app-title" style={{cursor:'pointer'}} onClick={() => { setSelectedId(null); setShowForm(false); }}>
           <Building2 size={22} color="#1C2B45" />
           <div>
             <h1 className="serif">지자체 영업/대관 관리</h1>
@@ -566,6 +566,7 @@ function MainApp({ user }) {
           <Search size={15} />
           <input placeholder="지자체명 또는 지역 검색" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <button className="btn-secondary" onClick={() => { setSelectedId(null); setShowForm(false); }}><Home size={14}/> 대시보드</button>
         <button className="btn-secondary" onClick={handleExportAll} disabled={exporting || munis.length===0}><Download size={14}/> {exporting ? '내보내는 중…' : '백업 다운로드'}</button>
         <button className="btn-secondary" onClick={() => signOut(auth)}><LogOut size={14}/> 로그아웃</button>
         <button className="btn-primary" onClick={openAddForm}><Plus size={15}/> 신규 지자체</button>
