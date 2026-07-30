@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Trash2, ChevronLeft, Loader2, Clock, AlertCircle, LogOut } from 'lucide-react';
+import {
+  Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Trash2,
+  ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle,
+} from 'lucide-react';
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
@@ -8,32 +11,72 @@ import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
 
 const REGIONS = ['서울특별시','부산광역시','대구광역시','인천광역시','대전광역시','울산광역시','세종특별자치시','경기도','강원특별자치도','충청북도','충청남도','전북특별자치도','전남광주통합특별시','경상북도','경상남도','제주특별자치도'];
 
-const STAGE_OPTIONS = [
-  { value: '리드', color: '#8A8F98' },
-  { value: '협의중', color: '#B8862E' },
-  { value: 'MOU체결', color: '#2C6E5E' },
-  { value: '운영중', color: '#3F7A57' },
-  { value: '휴면', color: '#A6453A' },
-];
+const TERM_OPTIONS = ['초선', '재선', '3선', '4선', '5선 이상'];
 
+const CONTRACT_CATEGORIES = ['관광', '고향사랑기부제', '지역화폐', '기타'];
+
+// 트랙별로 진행 단계와 담당자 필드 접두어, 색상을 함께 정의한다.
 const TRACKS = [
-  { key: 'councilStage', label: '지속가능관광지방정부협의회', short: '협의회' },
-  { key: 'wegiveStage', label: '위기브(고향사랑기부제)', short: '위기브' },
-  { key: 'wegivepayStage', label: '위기브페이', short: '위기브페이' },
+  {
+    key: 'councilStage', contactPrefix: 'council',
+    label: '지속가능관광지방정부협의회', short: '협의회',
+    stages: [
+      { value: '제안 완료', color: '#8A8F98' },
+      { value: '논의·검토 중', color: '#B8862E' },
+      { value: '가입 완료', color: '#3F7A57' },
+      { value: '불발', color: '#A6453A' },
+    ],
+  },
+  {
+    key: 'wegiveStage', contactPrefix: 'wegive',
+    label: '위기브(고향사랑기부제)', short: '위기브',
+    stages: [
+      { value: '제안 완료', color: '#8A8F98' },
+      { value: '논의·검토 중', color: '#B8862E' },
+      { value: '입점 완료', color: '#3F7A57' },
+      { value: '불발', color: '#A6453A' },
+    ],
+  },
+  {
+    key: 'wegivepayStage', contactPrefix: 'wegivepay',
+    label: '위기브페이(지역화폐)', short: '위기브페이',
+    stages: [
+      { value: '제안 완료', color: '#8A8F98' },
+      { value: '논의·검토 중', color: '#B8862E' },
+      { value: '입점 완료', color: '#3F7A57' },
+      { value: '불발', color: '#A6453A' },
+    ],
+  },
 ];
 
-const HISTORY_TYPES = ['방문','전화','이메일','화상미팅','내부검토','기타'];
+const HISTORY_TYPES = ['방문', '전화', '이메일', '화상미팅', '내부검토', '기타'];
+const HISTORY_TYPE_ICON = { 방문: MapPin, 전화: Phone, 이메일: Mail, 화상미팅: Video, 내부검토: FileText, 기타: Circle };
 
-function stageColor(stage) {
-  const found = STAGE_OPTIONS.find(s => s.value === stage);
+function stageColorFor(track, stage) {
+  const found = track.stages.find(s => s.value === stage);
   return found ? found.color : '#8A8F98';
 }
 
 function emptyMuni() {
   return {
-    name: '', region: REGIONS[0], population: '', dept: '', contactName: '', contactPhone: '', contactEmail: '',
-    councilStage: '리드', wegiveStage: '리드', wegivepayStage: '리드', recentFunding: '', memo: '',
+    name: '', region: REGIONS[0], dept: '',
+    headName: '', party: '', termCount: TERM_OPTIONS[0],
+    councilContactName: '', councilContactPhone: '', councilContactEmail: '',
+    wegiveContactName: '', wegiveContactPhone: '', wegiveContactEmail: '',
+    wegivepayContactName: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
+    councilStage: '제안 완료', wegiveStage: '제안 완료', wegivepayStage: '제안 완료',
+    fundingLastYearTotal: '', fundingLastYearWegive: '', fundingThisYearTarget: '',
+    currencyLastYearTotal: '', currencyThisYearPlanned: '', currencyWegivepayAmount: '',
+    memo: '',
   };
+}
+
+function emptyHistoryDraft(defaultAuthor) {
+  return { date: new Date().toISOString().slice(0, 10), type: '방문', author: defaultAuthor || '', content: '' };
+}
+
+function emptyContractDraft() {
+  return { category: CONTRACT_CATEGORIES[0], name: '', year: String(new Date().getFullYear()), amount: '', memo: '' };
 }
 
 // ---------- 인증 ----------
@@ -103,19 +146,22 @@ function MainApp({ user }) {
   const [loadingList, setLoadingList] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
   const [history, setHistory] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [contracts, setContracts] = useState([]);
+  const [loadingSub, setLoadingSub] = useState(false);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyMuni());
   const [isEditing, setIsEditing] = useState(false);
   const [tab, setTab] = useState('info');
-  const [historyDraft, setHistoryDraft] = useState({ date: new Date().toISOString().slice(0,10), type: '방문', author: user.displayName || '', content: '' });
+  const [historyDraft, setHistoryDraft] = useState(emptyHistoryDraft(user.displayName));
+  const [editingHistoryId, setEditingHistoryId] = useState(null);
+  const [contractDraft, setContractDraft] = useState(emptyContractDraft());
+  const [editingContractId, setEditingContractId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const detail = munis.find(m => m.id === selectedId) || null;
 
-  // 지자체 목록 실시간 구독 - 누군가 추가/수정하면 모두에게 즉시 반영됨
   useEffect(() => {
     const q = query(collection(db, 'municipalities'), orderBy('name'));
     const unsub = onSnapshot(q, snap => {
@@ -128,19 +174,19 @@ function MainApp({ user }) {
     return unsub;
   }, []);
 
-  // 선택된 지자체의 영업 히스토리 실시간 구독
   useEffect(() => {
-    if (!selectedId) { setHistory([]); return; }
-    setLoadingHistory(true);
-    const q = query(collection(db, 'municipalities', selectedId, 'history'), orderBy('date', 'desc'));
-    const unsub = onSnapshot(q, snap => {
+    if (!selectedId) { setHistory([]); setContracts([]); return; }
+    setLoadingSub(true);
+    const hq = query(collection(db, 'municipalities', selectedId, 'history'), orderBy('date', 'desc'));
+    const unsubH = onSnapshot(hq, snap => {
       setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoadingHistory(false);
-    }, err => {
-      setError(`히스토리를 불러오지 못했어요 (${err.message}).`);
-      setLoadingHistory(false);
-    });
-    return unsub;
+      setLoadingSub(false);
+    }, err => setError(`히스토리를 불러오지 못했어요 (${err.message}).`));
+    const cq = query(collection(db, 'municipalities', selectedId, 'contracts'), orderBy('year', 'desc'));
+    const unsubC = onSnapshot(cq, snap => {
+      setContracts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, err => setError(`용역 현황을 불러오지 못했어요 (${err.message}).`));
+    return () => { unsubH(); unsubC(); };
   }, [selectedId]);
 
   function openAddForm() {
@@ -152,7 +198,7 @@ function MainApp({ user }) {
 
   function openEditForm() {
     if (!detail) return;
-    setFormData(detail);
+    setFormData({ ...emptyMuni(), ...detail });
     setIsEditing(true);
     setShowForm(true);
   }
@@ -162,12 +208,7 @@ function MainApp({ user }) {
     if (!formData.name.trim()) { setError('지자체명을 입력해주세요.'); return; }
     setSaving(true);
     setError('');
-    const record = {
-      ...formData,
-      name: formData.name.trim(),
-      updatedAt: serverTimestamp(),
-      updatedBy: user.displayName || user.email,
-    };
+    const record = { ...formData, name: formData.name.trim(), updatedAt: serverTimestamp(), updatedBy: user.displayName || user.email };
     try {
       if (isEditing) {
         await updateDoc(doc(db, 'municipalities', selectedId), record);
@@ -184,7 +225,7 @@ function MainApp({ user }) {
 
   async function handleDelete() {
     if (!selectedId || !detail) return;
-    if (!window.confirm(`'${detail.name}' 항목을 삭제할까요? 영업 히스토리도 함께 삭제됩니다.`)) return;
+    if (!window.confirm(`'${detail.name}' 항목을 삭제할까요? 영업 히스토리·용역 현황도 함께 삭제됩니다.`)) return;
     setError('');
     try {
       await deleteDoc(doc(db, 'municipalities', selectedId));
@@ -194,24 +235,81 @@ function MainApp({ user }) {
     }
   }
 
-  async function handleAddHistory(e) {
+  // ---- 히스토리 ----
+  function startEditHistory(h) {
+    setEditingHistoryId(h.id);
+    setHistoryDraft({ date: h.date, type: h.type, author: h.author || '', content: h.content });
+  }
+  function cancelEditHistory() {
+    setEditingHistoryId(null);
+    setHistoryDraft(emptyHistoryDraft(user.displayName));
+  }
+  async function handleSaveHistory(e) {
     if (e && e.preventDefault) e.preventDefault();
     if (!historyDraft.content.trim()) { setError('내용을 입력해주세요.'); return; }
     setSaving(true);
     setError('');
+    const payload = { ...historyDraft, content: historyDraft.content.trim() };
     try {
-      await addDoc(collection(db, 'municipalities', selectedId, 'history'), {
-        ...historyDraft,
-        content: historyDraft.content.trim(),
-        createdAt: serverTimestamp(),
-      });
-      setHistoryDraft({ date: new Date().toISOString().slice(0,10), type: '방문', author: user.displayName || '', content: '' });
+      if (editingHistoryId) {
+        await updateDoc(doc(db, 'municipalities', selectedId, 'history', editingHistoryId), payload);
+      } else {
+        await addDoc(collection(db, 'municipalities', selectedId, 'history'), { ...payload, createdAt: serverTimestamp() });
+      }
+      setEditingHistoryId(null);
+      setHistoryDraft(emptyHistoryDraft(user.displayName));
     } catch (e) {
       setError(`히스토리 저장에 실패했어요 (${e.message}). 입력한 내용은 남아있으니 다시 시도해보세요.`);
     }
     setSaving(false);
   }
+  async function handleDeleteHistory(id) {
+    if (!window.confirm('이 히스토리를 삭제할까요?')) return;
+    try {
+      await deleteDoc(doc(db, 'municipalities', selectedId, 'history', id));
+    } catch (e) {
+      setError(`히스토리 삭제에 실패했어요 (${e.message}).`);
+    }
+  }
 
+  // ---- 용역 ----
+  function startEditContract(c) {
+    setEditingContractId(c.id);
+    setContractDraft({ category: c.category, name: c.name, year: c.year, amount: c.amount, memo: c.memo || '' });
+  }
+  function cancelEditContract() {
+    setEditingContractId(null);
+    setContractDraft(emptyContractDraft());
+  }
+  async function handleSaveContract(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!contractDraft.name.trim()) { setError('용역명을 입력해주세요.'); return; }
+    setSaving(true);
+    setError('');
+    const payload = { ...contractDraft, name: contractDraft.name.trim(), amount: Number(contractDraft.amount) || 0 };
+    try {
+      if (editingContractId) {
+        await updateDoc(doc(db, 'municipalities', selectedId, 'contracts', editingContractId), payload);
+      } else {
+        await addDoc(collection(db, 'municipalities', selectedId, 'contracts'), { ...payload, createdAt: serverTimestamp() });
+      }
+      setEditingContractId(null);
+      setContractDraft(emptyContractDraft());
+    } catch (e) {
+      setError(`용역 정보 저장에 실패했어요 (${e.message}).`);
+    }
+    setSaving(false);
+  }
+  async function handleDeleteContract(id) {
+    if (!window.confirm('이 용역 항목을 삭제할까요?')) return;
+    try {
+      await deleteDoc(doc(db, 'municipalities', selectedId, 'contracts', id));
+    } catch (e) {
+      setError(`용역 항목 삭제에 실패했어요 (${e.message}).`);
+    }
+  }
+
+  const totalContractAmount = contracts.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
   const filtered = munis.filter(m => m.name.includes(search) || (m.region || '').includes(search));
 
   return (
@@ -233,11 +331,7 @@ function MainApp({ user }) {
         <button className="btn-primary" onClick={openAddForm}><Plus size={15}/> 신규 지자체</button>
       </div>
 
-      {error && (
-        <div className="error-banner">
-          <AlertCircle size={14}/> {error}
-        </div>
-      )}
+      {error && <div className="error-banner"><AlertCircle size={14}/> {error}</div>}
 
       <div className="app-grid">
         <div className="sidebar">
@@ -251,8 +345,8 @@ function MainApp({ user }) {
               <span className="region">{m.region}</span>
               <div className="mini-stamp-row">
                 {TRACKS.map(t => (
-                  <span key={t.key} className="mini-stamp" style={{color: stageColor(m[t.key])}} title={`${t.label}: ${m[t.key] || '리드'}`}>
-                    {t.short} {m[t.key] || '리드'}
+                  <span key={t.key} className="mini-stamp" style={{color: stageColorFor(t, m[t.key])}} title={`${t.label}: ${m[t.key] || '제안 완료'}`}>
+                    {t.short} {m[t.key] || '제안 완료'}
                   </span>
                 ))}
               </div>
@@ -291,34 +385,64 @@ function MainApp({ user }) {
               <div className="tabs">
                 <button className={`tab-btn ${tab==='info'?'active':''}`} onClick={() => setTab('info')}>기본정보 · 현황</button>
                 <button className={`tab-btn ${tab==='history'?'active':''}`} onClick={() => setTab('history')}>영업 히스토리 ({history.length})</button>
+                <button className={`tab-btn ${tab==='contracts'?'active':''}`} onClick={() => setTab('contracts')}>용역 현황 ({contracts.length})</button>
               </div>
 
-              {tab === 'info' ? (
+              {tab === 'info' && (
                 <>
                   <div className="section-title">기본 정보</div>
                   <div className="info-grid">
                     <Field label="지역" value={detail.region} icon={<MapPin size={13}/>} />
-                    <Field label="인구 규모" value={detail.population} />
                     <Field label="담당 부서" value={detail.dept} />
-                    <Field label="담당자" value={detail.contactName} icon={<User size={13}/>} />
-                    <Field label="연락처" value={detail.contactPhone} icon={<Phone size={13}/>} />
-                    <Field label="이메일" value={detail.contactEmail} icon={<Mail size={13}/>} />
+                    <Field label="단체장 이름" value={detail.headName} icon={<User size={13}/>} />
+                    <Field label="소속 정당" value={detail.party} />
+                    <Field label="선수" value={detail.termCount} />
                   </div>
+
+                  <div className="section-title">업무별 담당자</div>
+                  <div className="stage-grid">
+                    {TRACKS.map(t => (
+                      <div key={t.key} className="stage-card">
+                        <div className="stage-card-label">{t.label}</div>
+                        <div className="icon-row"><User size={13}/>{detail[`${t.contactPrefix}ContactName`] || '미입력'}</div>
+                        <div className="icon-row"><Phone size={13}/>{detail[`${t.contactPrefix}ContactPhone`] || '미입력'}</div>
+                        <div className="icon-row"><Mail size={13}/>{detail[`${t.contactPrefix}ContactEmail`] || '미입력'}</div>
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="section-title">추진 현황</div>
                   <div className="stage-grid">
                     {TRACKS.map(t => (
                       <div key={t.key} className="stage-card">
                         <div className="stage-card-label">{t.label}</div>
-                        <span className="stamp" style={{color: stageColor(detail[t.key])}}>{detail[t.key] || '리드'}</span>
+                        <span className="stamp" style={{color: stageColorFor(t, detail[t.key])}}>{detail[t.key] || '제안 완료'}</span>
                       </div>
                     ))}
                   </div>
-                  <div style={{marginTop:14}}><Field label="최근 모금 현황" value={detail.recentFunding} full /></div>
+
+                  <div className="section-title">고향사랑기부제 모금 현황</div>
+                  <div className="info-grid">
+                    <Field label="작년 총 모금액" value={detail.fundingLastYearTotal} />
+                    <Field label="작년 위기브 모금액" value={detail.fundingLastYearWegive} />
+                    <Field label="올해 목표액" value={detail.fundingThisYearTarget} />
+                  </div>
+
+                  <div className="section-title">지역화폐 발행 현황</div>
+                  <div className="info-grid">
+                    <Field label="작년 총 발행액" value={detail.currencyLastYearTotal} />
+                    <Field label="올해 발행 예정액" value={detail.currencyThisYearPlanned} />
+                    <Field label="위기브페이 발행액" value={detail.currencyWegivepayAmount} />
+                  </div>
+
                   <div style={{marginTop:14}}><Field label="비고" value={detail.memo} full /></div>
                 </>
-              ) : (
+              )}
+
+              {tab === 'history' && (
                 <>
-                  <form className="history-form" onSubmit={handleAddHistory}>
+                  <form className="history-form" onSubmit={handleSaveHistory}>
+                    {editingHistoryId && <div className="editing-badge">히스토리 수정 중</div>}
                     <div className="form-grid">
                       <div className="form-field">
                         <label>날짜</label>
@@ -340,20 +464,96 @@ function MainApp({ user }) {
                       </div>
                     </div>
                     <div className="form-actions">
-                      <button className="btn-primary" type="submit" disabled={saving}><Save size={14}/> {saving ? '저장 중…' : '히스토리 추가'}</button>
+                      <button className="btn-primary" type="submit" disabled={saving}><Save size={14}/> {saving ? '저장 중…' : editingHistoryId ? '수정 저장' : '히스토리 추가'}</button>
+                      {editingHistoryId && <button type="button" className="btn-secondary" onClick={cancelEditHistory}><X size={14}/> 취소</button>}
                     </div>
                   </form>
 
-                  {loadingHistory ? (
+                  {loadingSub ? (
                     <div style={{fontSize:13, color:'#6B7280'}}>불러오는 중…</div>
                   ) : history.length === 0 ? (
                     <div style={{fontSize:13, color:'#6B7280'}}>아직 기록된 영업 히스토리가 없어요.</div>
-                  ) : history.map(h => (
-                    <div key={h.id} className="history-entry">
-                      <div className="meta"><Clock size={11}/> {h.date} · {h.type} {h.author && `· ${h.author}`}</div>
-                      <div className="content">{h.content}</div>
+                  ) : history.map(h => {
+                    const Icon = HISTORY_TYPE_ICON[h.type] || Circle;
+                    return (
+                      <div key={h.id} className="history-entry">
+                        <div className="history-icon" style={{background: '#F0EAD6'}}><Icon size={14} color="#B8862E"/></div>
+                        <div className="history-body">
+                          <div className="meta">
+                            <span>{h.date}</span><span>·</span><span>{h.type}</span>{h.author && <><span>·</span><span>{h.author}</span></>}
+                          </div>
+                          <div className="content">{h.content}</div>
+                        </div>
+                        <div className="history-actions">
+                          <button className="icon-btn" onClick={() => startEditHistory(h)} title="수정"><Edit3 size={13}/></button>
+                          <button className="icon-btn" onClick={() => handleDeleteHistory(h.id)} title="삭제"><Trash2 size={13}/></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {tab === 'contracts' && (
+                <>
+                  <form className="history-form" onSubmit={handleSaveContract}>
+                    {editingContractId && <div className="editing-badge">용역 정보 수정 중</div>}
+                    <div className="form-grid">
+                      <div className="form-field">
+                        <label>구분</label>
+                        <select value={contractDraft.category} onChange={e => setContractDraft({...contractDraft, category:e.target.value})}>
+                          {CONTRACT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-field">
+                        <label>계약연도</label>
+                        <input value={contractDraft.year} onChange={e => setContractDraft({...contractDraft, year:e.target.value})} placeholder="예: 2026" />
+                      </div>
+                      <div className="form-field full">
+                        <label>용역명</label>
+                        <input value={contractDraft.name} onChange={e => setContractDraft({...contractDraft, name:e.target.value})} placeholder="예: OO 홍보 콘텐츠 제작 용역" />
+                      </div>
+                      <div className="form-field">
+                        <label>계약금액 (원)</label>
+                        <input type="number" value={contractDraft.amount} onChange={e => setContractDraft({...contractDraft, amount:e.target.value})} placeholder="숫자만 입력" />
+                      </div>
+                      <div className="form-field full">
+                        <label>비고</label>
+                        <input value={contractDraft.memo} onChange={e => setContractDraft({...contractDraft, memo:e.target.value})} />
+                      </div>
                     </div>
-                  ))}
+                    <div className="form-actions">
+                      <button className="btn-primary" type="submit" disabled={saving}><Save size={14}/> {saving ? '저장 중…' : editingContractId ? '수정 저장' : '용역 추가'}</button>
+                      {editingContractId && <button type="button" className="btn-secondary" onClick={cancelEditContract}><X size={14}/> 취소</button>}
+                    </div>
+                  </form>
+
+                  {contracts.length > 0 && (
+                    <div className="total-line">총 계약금액: {totalContractAmount.toLocaleString('ko-KR')}원 ({contracts.length}건)</div>
+                  )}
+
+                  {contracts.length === 0 ? (
+                    <div style={{fontSize:13, color:'#6B7280'}}>아직 등록된 용역이 없어요.</div>
+                  ) : (
+                    <div className="contract-table">
+                      <div className="contract-row contract-head">
+                        <span>구분</span><span>용역명</span><span>연도</span><span>계약금액</span><span>비고</span><span></span>
+                      </div>
+                      {contracts.map(c => (
+                        <div key={c.id} className="contract-row">
+                          <span>{c.category}</span>
+                          <span>{c.name}</span>
+                          <span>{c.year}</span>
+                          <span>{Number(c.amount || 0).toLocaleString('ko-KR')}원</span>
+                          <span className="muted">{c.memo || '-'}</span>
+                          <span className="history-actions">
+                            <button className="icon-btn" onClick={() => startEditContract(c)} title="수정"><Edit3 size={13}/></button>
+                            <button className="icon-btn" onClick={() => handleDeleteContract(c.id)} title="삭제"><Trash2 size={13}/></button>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -381,29 +581,61 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
         <h2 className="serif">{isEditing ? '지자체 정보 수정' : '신규 지자체 등록'}</h2>
         <button type="button" className="btn-secondary" onClick={onCancel}><X size={14}/> 취소</button>
       </div>
+
       <div className="section-title">기본 정보</div>
       <div className="form-grid">
         <div className="form-field"><label>지자체명 *</label><input value={data.name} onChange={e=>set('name', e.target.value)} placeholder="예: 양구군" required /></div>
         <div className="form-field"><label>광역시도</label><select value={data.region} onChange={e=>set('region', e.target.value)}>{REGIONS.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
-        <div className="form-field"><label>인구 규모</label><input value={data.population} onChange={e=>set('population', e.target.value)} placeholder="예: 약 2만명" /></div>
         <div className="form-field"><label>담당 부서</label><input value={data.dept} onChange={e=>set('dept', e.target.value)} placeholder="예: 정책기획과" /></div>
-        <div className="form-field"><label>담당자</label><input value={data.contactName} onChange={e=>set('contactName', e.target.value)} /></div>
-        <div className="form-field"><label>연락처</label><input value={data.contactPhone} onChange={e=>set('contactPhone', e.target.value)} placeholder="000-0000-0000" /></div>
-        <div className="form-field"><label>이메일</label><input value={data.contactEmail} onChange={e=>set('contactEmail', e.target.value)} /></div>
+        <div className="form-field"><label>단체장 이름</label><input value={data.headName} onChange={e=>set('headName', e.target.value)} /></div>
+        <div className="form-field"><label>소속 정당</label><input value={data.party} onChange={e=>set('party', e.target.value)} /></div>
+        <div className="form-field"><label>선수</label>
+          <select value={data.termCount} onChange={e=>set('termCount', e.target.value)}>{TERM_OPTIONS.map(t=><option key={t} value={t}>{t}</option>)}</select>
+        </div>
       </div>
+
+      <div className="section-title">업무별 담당자</div>
+      <div className="form-grid">
+        {TRACKS.map(t => (
+          <React.Fragment key={t.key}>
+            <div className="form-field"><label>{t.label} 담당자</label><input value={data[`${t.contactPrefix}ContactName`]} onChange={e=>set(`${t.contactPrefix}ContactName`, e.target.value)} /></div>
+            <div className="form-field"><label>{t.label} 연락처</label><input value={data[`${t.contactPrefix}ContactPhone`]} onChange={e=>set(`${t.contactPrefix}ContactPhone`, e.target.value)} placeholder="000-0000-0000" /></div>
+            <div className="form-field full"><label>{t.label} 이메일</label><input value={data[`${t.contactPrefix}ContactEmail`]} onChange={e=>set(`${t.contactPrefix}ContactEmail`, e.target.value)} /></div>
+          </React.Fragment>
+        ))}
+      </div>
+
       <div className="section-title">추진 현황</div>
       <div className="form-grid">
         {TRACKS.map(t => (
           <div className="form-field" key={t.key}>
             <label>{t.label} 단계</label>
             <select value={data[t.key]} onChange={e=>set(t.key, e.target.value)}>
-              {STAGE_OPTIONS.map(s=><option key={s.value} value={s.value}>{s.value}</option>)}
+              {t.stages.map(s=><option key={s.value} value={s.value}>{s.value}</option>)}
             </select>
           </div>
         ))}
-        <div className="form-field full"><label>최근 모금 현황</label><textarea value={data.recentFunding} onChange={e=>set('recentFunding', e.target.value)} placeholder="최근 모금액, 제휴처 순위 등 자유롭게 기록" /></div>
-        <div className="form-field full"><label>비고</label><textarea value={data.memo} onChange={e=>set('memo', e.target.value)} placeholder="지역 특성, 주요 이슈, 참고사항 등" /></div>
       </div>
+
+      <div className="section-title">고향사랑기부제 모금 현황</div>
+      <div className="form-grid">
+        <div className="form-field"><label>작년 총 모금액</label><input value={data.fundingLastYearTotal} onChange={e=>set('fundingLastYearTotal', e.target.value)} placeholder="예: 3억 2천만원" /></div>
+        <div className="form-field"><label>작년 위기브 모금액</label><input value={data.fundingLastYearWegive} onChange={e=>set('fundingLastYearWegive', e.target.value)} /></div>
+        <div className="form-field"><label>올해 목표액</label><input value={data.fundingThisYearTarget} onChange={e=>set('fundingThisYearTarget', e.target.value)} /></div>
+      </div>
+
+      <div className="section-title">지역화폐 발행 현황</div>
+      <div className="form-grid">
+        <div className="form-field"><label>작년 총 발행액</label><input value={data.currencyLastYearTotal} onChange={e=>set('currencyLastYearTotal', e.target.value)} /></div>
+        <div className="form-field"><label>올해 발행 예정액</label><input value={data.currencyThisYearPlanned} onChange={e=>set('currencyThisYearPlanned', e.target.value)} /></div>
+        <div className="form-field"><label>위기브페이 발행액</label><input value={data.currencyWegivepayAmount} onChange={e=>set('currencyWegivepayAmount', e.target.value)} /></div>
+      </div>
+
+      <div className="section-title">비고</div>
+      <div className="form-grid">
+        <div className="form-field full"><textarea value={data.memo} onChange={e=>set('memo', e.target.value)} placeholder="지역 특성, 주요 이슈, 참고사항 등" /></div>
+      </div>
+
       <div className="form-actions">
         <button className="btn-primary" type="submit" disabled={saving}><Save size={14}/> {saving ? '저장 중…' : '저장'}</button>
       </div>
@@ -455,7 +687,7 @@ function GlobalStyle() {
       .detail-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; gap:12px; flex-wrap:wrap; }
       .detail-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
       .detail-title h2 { font-size:21px; margin:0; }
-      .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:20px; }
+      .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:20px; flex-wrap:wrap; }
       .tab-btn { padding:9px 4px; margin-right:22px; background:none; border:none; font-size:13px; font-weight:600; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; }
       .tab-btn.active { color:var(--primary); border-bottom-color:var(--accent); }
       .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 24px; }
@@ -470,15 +702,26 @@ function GlobalStyle() {
       .form-field label { font-size:12px; font-weight:600; color:var(--text); }
       .form-field input, .form-field select, .form-field textarea { padding:8px 10px; border:1px solid var(--border); border-radius:7px; font-size:13px; font-family:inherit; background:var(--surface); box-sizing:border-box; }
       .form-field textarea { resize:vertical; min-height:60px; }
-      .form-actions { display:flex; gap:10px; margin-top:20px; }
+      .form-actions { display:flex; gap:10px; margin-top:20px; align-items:center; }
       .history-form { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:20px; }
-      .history-entry { border-left:2px solid var(--border); padding:2px 0 16px 16px; position:relative; }
-      .history-entry::before { content:''; position:absolute; left:-5px; top:5px; width:8px; height:8px; border-radius:50%; background:var(--accent); }
-      .history-entry .meta { font-size:11px; color:var(--text-muted); font-weight:600; margin-bottom:3px; display:flex; gap:8px; align-items:center; }
+      .editing-badge { display:inline-block; background:var(--accent); color:#fff; font-size:11px; font-weight:700; padding:3px 9px; border-radius:5px; margin-bottom:10px; }
+      .history-entry { display:flex; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
+      .history-icon { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .history-body { flex:1; min-width:0; }
+      .history-entry .meta { font-size:11px; color:var(--text-muted); font-weight:600; margin-bottom:3px; display:flex; gap:6px; align-items:center; }
       .history-entry .content { font-size:13px; line-height:1.5; }
+      .history-actions { display:flex; gap:4px; align-items:center; flex-shrink:0; }
+      .icon-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; border-radius:5px; display:flex; }
+      .icon-btn:hover { background:var(--bg); color:var(--primary); }
       .error-banner { background:#FBEDEA; color:var(--danger); padding:8px 14px; border-radius:8px; font-size:12px; margin:12px 24px 0; display:flex; align-items:center; gap:6px; }
       .icon-row { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); }
       .icon-row svg { color:var(--text-muted); flex-shrink:0; }
+      .total-line { font-size:13px; font-weight:700; color:var(--primary); margin-bottom:12px; }
+      .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+      .contract-row { display:grid; grid-template-columns:1fr 2fr 0.7fr 1fr 1.2fr 0.6fr; gap:8px; padding:10px 12px; font-size:13px; align-items:center; border-bottom:1px solid var(--border); }
+      .contract-row:last-child { border-bottom:none; }
+      .contract-row.contract-head { background:var(--bg); font-weight:700; font-size:11px; color:var(--text-muted); text-transform:uppercase; }
+      .contract-row .muted { color:var(--text-muted); }
       .spin { animation: spin 1s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .back-btn { display:none; }
@@ -489,6 +732,7 @@ function GlobalStyle() {
         .detail { padding:18px 16px; }
         .info-grid, .form-grid { grid-template-columns:1fr; }
         .stage-grid { grid-template-columns:1fr; }
+        .contract-row { grid-template-columns:1fr; }
         .back-btn { display:flex; margin-bottom:14px; }
       }
     `}</style>
