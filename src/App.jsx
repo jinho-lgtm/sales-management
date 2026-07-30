@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Trash2,
-  ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle,
+  ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download,
 } from 'lucide-react';
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp,
+  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, getDocs,
 } from 'firebase/firestore';
 import { onAuthStateChanged, signInWithPopup, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, googleProvider, db, ALLOWED_EMAIL_DOMAIN } from './firebase';
@@ -183,6 +183,7 @@ function MainApp({ user }) {
   const [editingContractId, setEditingContractId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const detail = munis.find(m => m.id === selectedId) || null;
 
@@ -214,6 +215,38 @@ function MainApp({ user }) {
     }, err => setError(`용역 현황을 불러오지 못했어요 (${err.message}).`));
     return () => { unsubH(); unsubC(); };
   }, [selectedId]);
+
+  async function handleExportAll() {
+    setExporting(true);
+    setError('');
+    try {
+      const bundle = { exportedAt: new Date().toISOString(), municipalities: [] };
+      for (const m of munis) {
+        let hist = [], contr = [];
+        try {
+          const hs = await getDocs(collection(db, 'municipalities', m.id, 'history'));
+          hist = hs.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {}
+        try {
+          const cs = await getDocs(collection(db, 'municipalities', m.id, 'contracts'));
+          contr = cs.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {}
+        bundle.municipalities.push({ ...m, history: hist, contracts: contr });
+      }
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `지자체_영업대관관리_백업_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(`백업 다운로드에 실패했어요 (${e.message}).`);
+    }
+    setExporting(false);
+  }
 
   function openAddForm() {
     setFormData(emptyMuni());
@@ -361,6 +394,7 @@ function MainApp({ user }) {
           <Search size={15} />
           <input placeholder="지자체명 또는 지역 검색" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <button className="btn-secondary" onClick={handleExportAll} disabled={exporting || munis.length===0}><Download size={14}/> {exporting ? '내보내는 중…' : '백업 다운로드'}</button>
         <button className="btn-secondary" onClick={() => signOut(auth)}><LogOut size={14}/> 로그아웃</button>
         <button className="btn-primary" onClick={openAddForm}><Plus size={15}/> 신규 지자체</button>
       </div>
