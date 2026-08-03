@@ -291,12 +291,14 @@ function MainApp({ user }) {
       const items = JSON.parse(text);
       if (!Array.isArray(items)) throw new Error('JSON 파일이 지자체 배열 형식이 아니에요.');
 
-      const existingNames = new Set(munis.map(m => m.name));
+      const dedupeKey = m => `${m.region || ''}::${m.name}`;
+      const existingKeys = new Set(munis.map(dedupeKey));
       let addedMuni = 0, skippedMuni = 0, addedHistory = 0;
 
       for (const item of items) {
         if (!item.name || !item.name.trim()) continue;
-        if (existingNames.has(item.name.trim())) { skippedMuni++; continue; }
+        const key = dedupeKey({ region: item.region, name: item.name.trim() });
+        if (existingKeys.has(key)) { skippedMuni++; continue; }
 
         const record = {
           ...emptyMuni(),
@@ -313,7 +315,7 @@ function MainApp({ user }) {
         };
         const ref = await addDoc(collection(db, 'municipalities'), record);
         addedMuni++;
-        existingNames.add(item.name.trim());
+        existingKeys.add(key);
 
         for (const h of (item.history || [])) {
           if (!h.content) continue;
