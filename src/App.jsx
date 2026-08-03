@@ -148,7 +148,7 @@ function SignInScreen({ externalError }) {
   return (
     <div className="gate-screen">
       <Building2 size={40} strokeWidth={1.2} />
-      <h2 className="serif">지자체 영업/대관 관리</h2>
+      <h2 className="brand-heading">지자체 영업/대관 관리</h2>
       <p>회사 구글 계정으로 로그인하면 이용할 수 있어요.</p>
       {shownError && <div className="error-banner"><AlertCircle size={14}/> {shownError}</div>}
       <button className="btn-primary" onClick={handleSignIn} disabled={signingIn}>{signingIn ? '로그인 중…' : '구글 계정으로 로그인'}</button>
@@ -160,7 +160,7 @@ function AccessDenied({ user }) {
   return (
     <div className="gate-screen">
       <AlertCircle size={40} strokeWidth={1.2} color="#A6453A" />
-      <h2 className="serif">접근 권한이 없어요</h2>
+      <h2 className="brand-heading">접근 권한이 없어요</h2>
       <p>{user.email} 계정은 이 도구에 접근할 수 없어요.<br/>회사 이메일 계정으로 다시 로그인해주세요.</p>
       <button className="btn-secondary" onClick={() => signOut(auth)}><LogOut size={14}/> 다른 계정으로 로그인</button>
     </div>
@@ -594,9 +594,9 @@ function MainApp({ user }) {
       <GlobalStyle />
       <div className="app-header">
         <div className="app-title" style={{cursor:'pointer'}} onClick={() => { setSelectedId(null); setShowForm(false); }}>
-          <Building2 size={22} color="#1C2B45" />
+          <Building2 size={22} color="#163A5C" />
           <div>
-            <h1 className="serif">지자체 영업/대관 관리</h1>
+            <h1 className="brand-heading">지자체 영업/대관 관리</h1>
             <p>공감만세 사업본부 · 전사 공유 · 총 {munis.length}개 지자체 · {user.email}</p>
           </div>
         </div>
@@ -624,7 +624,7 @@ function MainApp({ user }) {
               <span className="region">{m.region}</span>
               <div className="mini-stamp-row">
                 {TRACKS.map(t => (
-                  <span key={t.key} className="mini-stamp" style={{color: stageColorFor(t, m[t.key])}} title={`${t.label}: ${m[t.key] || '미제안'}`}>
+                  <span key={t.key} className="mini-stamp" style={{background: stageColorFor(t, m[t.key])}} title={`${t.label}: ${m[t.key] || '미제안'}`}>
                     {t.short} {m[t.key] || '미제안'}
                   </span>
                 ))}
@@ -658,7 +658,7 @@ function MainApp({ user }) {
               <button className="back-btn btn-secondary" onClick={() => setSelectedId(null)}><ChevronLeft size={15}/> 목록으로</button>
               <div className="detail-header">
                 <div className="detail-title">
-                  <h2 className="serif">{detail.name}</h2>
+                  <h2 className="brand-heading">{detail.name}</h2>
                   {detail.updatedBy && (
                     <span style={{fontSize:11, color:'#6B7280'}}>
                       최근 수정 {detail.updatedAt?.toDate ? detail.updatedAt.toDate().toLocaleDateString('ko-KR') : ''} · {detail.updatedBy}
@@ -705,7 +705,7 @@ function MainApp({ user }) {
                     {TRACKS.map(t => (
                       <div key={t.key} className="stage-card">
                         <div className="stage-card-label">{t.label}</div>
-                        <span className="stamp" style={{color: stageColorFor(t, detail[t.key])}}>{detail[t.key] || '미제안'}</span>
+                        <span className="stamp" style={{background: stageColorFor(t, detail[t.key])}}>{detail[t.key] || '미제안'}</span>
                       </div>
                     ))}
                   </div>
@@ -1069,7 +1069,7 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
   return (
     <form onSubmit={onSubmit}>
       <div className="detail-header">
-        <h2 className="serif">{isEditing ? '지자체 정보 수정' : '신규 지자체 등록'}</h2>
+        <h2 className="brand-heading">{isEditing ? '지자체 정보 수정' : '신규 지자체 등록'}</h2>
         <button type="button" className="btn-secondary" onClick={onCancel}><X size={14}/> 취소</button>
       </div>
 
@@ -1138,16 +1138,16 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
 function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800;900&display=swap');
       html, body, #root { height: 100%; margin: 0; }
-      .gate-screen { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; font-family:'Noto Sans KR',sans-serif; text-align:center; padding:24px; background:#F5F3EE; color:#1E2430; }
+      .gate-screen { min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; font-family:'Noto Sans KR',sans-serif; text-align:center; padding:24px; background:#F5F6F8; color:#1B2733; }
       .gate-screen h2 { margin:0; font-size:20px; }
-      .gate-screen p { margin:0; color:#6B7280; font-size:13px; line-height:1.6; }
-      .app-root { --bg:#F5F3EE; --surface:#FFFFFF; --primary:#1C2B45; --primary-dark:#10192B; --accent:#B8862E;
-        --text:#1E2430; --text-muted:#6B7280; --border:#E4E0D6; --danger:#A6453A;
+      .gate-screen p { margin:0; color:#6B7686; font-size:13px; line-height:1.6; }
+      .app-root { --bg:#F5F6F8; --surface:#FFFFFF; --primary:#163A5C; --primary-dark:#0E2740; --accent:#E8503C;
+        --text:#1B2733; --text-muted:#6B7686; --border:#E2E5EA; --danger:#C23B2B;
         font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:var(--text);
         min-height:100vh; display:flex; flex-direction:column; }
-      .serif { font-family:'Noto Serif KR', serif; }
+      .brand-heading { font-family:'Noto Sans KR',sans-serif; font-weight:800; letter-spacing:-0.02em; }
       .app-header { padding:18px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; background:var(--surface); }
       .app-title { display:flex; align-items:center; gap:10px; }
       .app-title h1 { font-size:18px; font-weight:700; margin:0; letter-spacing:-0.01em; }
@@ -1168,9 +1168,9 @@ function GlobalStyle() {
       .muni-item.active { background:#EFEBE0; }
       .muni-item .name { font-weight:600; font-size:14px; }
       .muni-item .region { font-size:12px; color:var(--text-muted); }
-      .stamp { display:inline-flex; align-items:center; justify-self:start; border:1.5px solid currentColor; border-radius:5px; padding:1px 7px; font-size:10px; font-weight:700; letter-spacing:0.06em; transform:rotate(-2deg); width:fit-content; }
+      .stamp { display:inline-flex; align-items:center; justify-self:start; border-radius:6px; padding:3px 10px; font-size:11px; font-weight:700; letter-spacing:0.01em; color:#fff; width:fit-content; }
       .mini-stamp-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
-      .mini-stamp { border:1px solid currentColor; border-radius:4px; padding:0px 5px; font-size:9px; font-weight:700; letter-spacing:0.02em; white-space:nowrap; }
+      .mini-stamp { border-radius:5px; padding:2px 7px; font-size:10px; font-weight:700; letter-spacing:0.01em; color:#fff; white-space:nowrap; }
       .stage-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; }
       .stage-card { border:1px solid var(--border); border-radius:9px; padding:12px 14px; background:var(--surface); display:flex; flex-direction:column; gap:8px; }
       .stage-card-label { font-size:12px; font-weight:600; color:var(--text); line-height:1.3; }
@@ -1225,7 +1225,7 @@ function GlobalStyle() {
       .stat-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
       .stat-card { border:1px solid var(--border); border-radius:12px; padding:20px; background:var(--surface); }
       .stat-label { font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:10px; }
-      .stat-value { font-size:42px; font-weight:800; font-family:'Noto Serif KR', serif; letter-spacing:-0.01em; line-height:1.1; color:var(--primary); }
+      .stat-value { font-size:42px; font-weight:800; font-family:'Noto Sans KR',sans-serif; letter-spacing:-0.02em; line-height:1.1; color:var(--primary); }
       .stat-target { font-size:20px; font-weight:700; color:var(--text-muted); margin-top:10px; }
       .stat-status { font-size:13px; font-weight:700; margin-top:6px; }
       .contract-table { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
