@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Building2, Search, Plus, X, Save, Phone, Mail, MapPin, User, Edit3, Trash2,
   ChevronLeft, Loader2, Clock, AlertCircle, LogOut, Video, FileText, Circle, Download, Home,
@@ -202,6 +202,8 @@ function MainApp({ user }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef(null);
   const [activityRaw, setActivityRaw] = useState([]);
   const [yearHistoryDocs, setYearHistoryDocs] = useState([]);
   const [yearContracts, setYearContracts] = useState([]);
@@ -277,6 +279,61 @@ function MainApp({ user }) {
       setError(`백업 다운로드에 실패했어요 (${e.message}).`);
     }
     setExporting(false);
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setError('');
+    try {
+      const text = await file.text();
+      const items = JSON.parse(text);
+      if (!Array.isArray(items)) throw new Error('JSON 파일이 지자체 배열 형식이 아니에요.');
+
+      const existingNames = new Set(munis.map(m => m.name));
+      let addedMuni = 0, skippedMuni = 0, addedHistory = 0;
+
+      for (const item of items) {
+        if (!item.name || !item.name.trim()) continue;
+        if (existingNames.has(item.name.trim())) { skippedMuni++; continue; }
+
+        const record = {
+          ...emptyMuni(),
+          name: item.name.trim(),
+          region: item.region || REGIONS[0],
+          wegiveDept: item.wegiveDept || '',
+          wegiveContactName: item.wegiveContactName || '',
+          wegiveContactPosition: item.wegiveContactPosition || '',
+          wegiveContactPhone: item.wegiveContactPhone || '',
+          wegiveContactEmail: item.wegiveContactEmail || '',
+          memo: item.memo || '',
+          updatedAt: serverTimestamp(),
+          updatedBy: user.displayName || user.email,
+        };
+        const ref = await addDoc(collection(db, 'municipalities'), record);
+        addedMuni++;
+        existingNames.add(item.name.trim());
+
+        for (const h of (item.history || [])) {
+          if (!h.content) continue;
+          await addDoc(collection(db, 'municipalities', ref.id, 'history'), {
+            category: h.category || HISTORY_CATEGORIES[0].label,
+            date: h.date || new Date().toISOString().slice(0, 10),
+            type: h.type || '기타',
+            author: h.author || '',
+            content: h.content,
+            createdAt: serverTimestamp(),
+          });
+          addedHistory++;
+        }
+      }
+      setError(`가져오기 완료 — 지자체 ${addedMuni}개 추가, ${skippedMuni}개는 이미 있어서 건너뜀, 히스토리 ${addedHistory}건 추가.`);
+    } catch (e) {
+      setError(`가져오기에 실패했어요 (${e.message}).`);
+    }
+    setImporting(false);
+    e.target.value = '';
   }
 
   useEffect(() => {
@@ -606,6 +663,8 @@ function MainApp({ user }) {
         </div>
         <button className="btn-secondary" onClick={() => { setSelectedId(null); setShowForm(false); }}><Home size={14}/> 대시보드</button>
         <button className="btn-secondary" onClick={handleExportAll} disabled={exporting || munis.length===0}><Download size={14}/> {exporting ? '내보내는 중…' : '백업 다운로드'}</button>
+        <button className="btn-secondary" onClick={() => importInputRef.current?.click()} disabled={importing}><Download size={14} style={{transform:'rotate(180deg)'}}/> {importing ? '가져오는 중…' : '데이터 가져오기'}</button>
+        <input ref={importInputRef} type="file" accept="application/json" style={{display:'none'}} onChange={handleImportFile} />
         <button className="btn-secondary" onClick={() => signOut(auth)}><LogOut size={14}/> 로그아웃</button>
         <button className="btn-primary" onClick={openAddForm}><Plus size={15}/> 신규 지자체</button>
       </div>
@@ -1312,278 +1371,3 @@ function GlobalStyle() {
     `}</style>
   );
 }
-[
-  {
-    "name": "옹진군",
-    "region": "인천광역시",
-    "wegiveDept": "행정자치과 인구정책팀",
-    "wegiveContactName": "이성호",
-    "wegiveContactPosition": "팀장",
-    "wegiveContactPhone": "032-899-2791",
-    "wegiveContactEmail": "way4u2@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n행정자치과 인구정책팀 팀장 이성호 032-899-2791  \n행정자치과 인구정책팀 주무관 길준수 032-899-2792 way4u2@korea.kr",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-08-03",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 길준수 주무관 (내용) 옹진군 고향사랑기부가 활성화되지 않아, 바로 참여하기는 어려운 상황. 다만 위기브 검토 위해 자료 요청해 소개자료 및 실적자료 메일로 전달 ‑"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-08-13",
-        "type": "기타",
-        "author": "이전 사용자 (Deleted)",
-        "content": "* 폭우피해 관련 피해복구 긴금 지정기부함 개설 등 제안. → 현재 피해 규모가 크지 않기에 피해 규모가 커질 경우 연락 주겠다고 함 ‑"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-03-05",
-        "type": "기타",
-        "author": "문창기",
-        "content": "현재 고향사랑기부제 전반이 활성화되지 않았고, 옷진군의 고향사랑기부금 모금도 민간플랫폼을 활용하기에는 애매한 상황이라고 판단. 추후 검토하겠다고 함"
-      }
-    ]
-  },
-  {
-    "name": "북구",
-    "region": "울산광역시",
-    "wegiveDept": "세무1과 세정팀",
-    "wegiveContactName": "이상호",
-    "wegiveContactPosition": "주무관",
-    "wegiveContactPhone": "052-241-7503",
-    "wegiveContactEmail": "lsh76727@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n세무1과 세정팀 이상호 주무관 052-241-7503 lsh76727@korea.kr",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-08-03",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 이상호 주무관 (내용) 계약 절차에 대해 질문. 계약 여부 검토 후 회신하겠다고 함. ‑"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-05-13",
-        "type": "기타",
-        "author": "문창기",
-        "content": "아직 검토 중인 상황. 울산 중구 위기브 모금에 대해서는 몰랐고, 자극 받은 것으로 보임"
-      }
-    ]
-  },
-  {
-    "name": "남구",
-    "region": "울산광역시",
-    "wegiveDept": "주민자치과",
-    "wegiveContactName": "장선영",
-    "wegiveContactPosition": "주무관",
-    "wegiveContactPhone": "052-226-5477",
-    "wegiveContactEmail": "hana9618@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n주민자치과 장선영 주무관 052-226-5477 hana9618@korea.kr",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-08-03",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 장선영 주무관 (내용) 추경에 수수료 편성을 위한 기금 변경 중. 8/18/2026(화) 14시 계약 제안한 상황, 내부 보고 후 회신주기로 함"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-07-20",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 장선영 주무관 (내용) 기금운용심의위원회 개최 후 예산실에서 예산 항목 변경(7월 27일 주간에 진행), 최종 정리되면 계약 일정 확정(8월 10일 전 예상)"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-06-29",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 장선영 주무관 (내용) 위기브 계약 결제 추진, 이후 모금 개시와 관련한 절차 문의, 설명. 8월 중 계약 진행 예정"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-03-30",
-        "type": "기타",
-        "author": "문창기",
-        "content": "(상황) 주무관 인사이동으로 2026년 1월부터 고향사랑기부제 업무 담당. 위기브 계약 검토 위해 위기브 소개 자료와 2025년 모금 성과 요청. 메일 발송 ‑"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-04-17",
-        "type": "기타",
-        "author": "문창기",
-        "content": "2025년 1분기 모금액은 전년 대비 적은 상황. 위기브 수수료율이 높다고 인식하고 있어 도입 계획을 하지 않고 있음."
-      }
-    ]
-  },
-  {
-    "name": "의정부시",
-    "region": "경기도",
-    "wegiveDept": "자치행정과 마을자치팀",
-    "wegiveContactName": "이현숙",
-    "wegiveContactPosition": "팀장",
-    "wegiveContactPhone": "031-828-2341",
-    "wegiveContactEmail": "hsl0105@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n자치행정과 마을자치팀 팀장 이현숙 031-828-2341 hsl0105@korea.kr  \n자치행정과 마을자치팀 주무관 허준혁 031-828-2344",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-07-31",
-        "type": "방문",
-        "author": "문창기",
-        "content": "(미팅) 이현숙 팀장, 허준혁 주무관 (내용) 의정부시는 매년 모금 성장 구조를 만들기 위해 위기브 모금 계약을 추진."
-      }
-    ]
-  },
-  {
-    "name": "전주시",
-    "region": "전북특별자치도",
-    "wegiveDept": "기획조정실 자치행정과 자치분권팀",
-    "wegiveContactName": "조계선",
-    "wegiveContactPosition": "팀장",
-    "wegiveContactPhone": "063-281-2269",
-    "wegiveContactEmail": "ksunjo@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n기획조정실 자치행정과 자치분권팀 조계선 팀장 063-281-2269 ksunjo@korea.kr 010-9135-8456   \n기획조정실 자치행정과 자치분권팀 최선경 주무관 063-281-2158 carivia@korea.kr 010-7696-8518",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-04-23",
-        "type": "방문",
-        "author": "문창기",
-        "content": "(미팅) 이욱(과장), 조계선(팀장), 설영석(주무관) 미팅 (상황) 위기브 모금 방식에 대해 설명. 답례품 역량강화 컨설팅, 홍보마케팅, 이벤트에 대해 과장 이하 이해하고 있어 제안 가능."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-04-16",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 설영석 주무관 (내용) 위기브 계약 관련 내부 절차는 완료. 다만 과장이 위기브 모금 방식에 대해 궁금해한다고 방문 요청."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-04-13",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 설영석 주무관 (내용) 위기브 소개서 및 2025년 모금 성과 분석 자료를 중심으로 내부 보고 자료 작성 중"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-03-11",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 조계선 팀장 통화 (내용) 보내 준 2025년 성과 분석 자료를 검토, 과장도 위기브 모금력에 대해서는 인정."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-01-19",
-        "type": "기타",
-        "author": "문창기",
-        "content": "25년 모금액은 24년에 비해 크게 늘지 않았음. 전주시가 계약, 모금 위탁한 액티부키가 전혀 모금 활성화하지 하지 못하는 상황."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-10-23",
-        "type": "기타",
-        "author": "문창기",
-        "content": "자치분권팀장 및 주무관 미팅. 위기브 모금 성과 및 방식에 대해 설명했고, 관심 표현. 위기브 계약서 메일 발송"
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-04-11",
-        "type": "기타",
-        "author": "문창기",
-        "content": "전주시의회에서 민간플랫폼 활용 필요성에 대한 지적이 있어서 위기브 모금을 내부에서 검토하는 중."
-      }
-    ]
-  },
-  {
-    "name": "남원시",
-    "region": "전북특별자치도",
-    "wegiveDept": "행정지원과 대외협력팀",
-    "wegiveContactName": "안은정",
-    "wegiveContactPosition": "팀장",
-    "wegiveContactPhone": "063-620-6096",
-    "wegiveContactEmail": "suhyun0115@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n행정지원과 대외협력팀 안은정 팀장 063-620-6096   \n행정지원과 대외협력팀 이수현 주무관 063-620-6097 010-9476-1536 suhyun0115@korea.kr",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-07-16",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 김애리 주무관 (내용) 위기브와 웰로 중 한 곳과 계약하기 위해 검토 중(다음 주 결정될 듯)."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-06-04",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 김애리 주무관 (내용) 수수료율 : 11%이나 플랫폼 제휴 비용을 위기브 부담하기 때문에 다른 민간플랫폼과 같은 수준."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-03-11",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 안은정 팀장 (내용) 위기브 모금 계약 관련 검토 여부 문의, 과장이 상반기는 모금을 현행과 같이 진행."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-09-05",
-        "type": "기타",
-        "author": "문창기",
-        "content": "팀장은 올 해는 고향사랑e음을 통해 모금하려고 함. 계약방식 및 수수료 정산에 대해 문의."
-      }
-    ]
-  },
-  {
-    "name": "진안군",
-    "region": "전북특별자치도",
-    "wegiveDept": "행정지원과",
-    "wegiveContactName": "장시동",
-    "wegiveContactPosition": "과장",
-    "wegiveContactPhone": "063-430-2210",
-    "wegiveContactEmail": "jsd72@korea.kr",
-    "memo": "[Confluence 원본 담당자 정보]\n행정지원과 과장 장시동 063-430-2210 010-4820-9978 jsd72@korea.kr   \n행정지원과 인구활력팀 팀장 김민성 063-430-2836 010-5312-3897 alstjd00@korea.kr   \n행정지원과 인구활력팀 주무관 강유현 063-430-2830 010-3808-6571 kangnang@korea.kr",
-    "history": [
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-07-28",
-        "type": "방문",
-        "author": "문창기",
-        "content": "(미팅) 김민성 팀장, 강유현 주무관 (내용) 위기브 입점 관련 의회 보고 진행. 의원들이 주문한 내용은 답례품 관리 철저, 제휴 마케팅에 관심 많았다고 함."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-06-17",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 김민성 팀장 (내용) 위기브 계약 위한 기금운용심의위원회 개최, 통과."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-04-13",
-        "type": "전화",
-        "author": "문창기",
-        "content": "(통화) 김민성 팀장 통화 (내용) 기금운용심의위원회에서 위기브 계약 의결."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2026-01-30",
-        "type": "기타",
-        "author": "문창기",
-        "content": "김민성 팀장 연락, 1달 시범 모금 운영 가능한 지 문의해 어렵다고 설명."
-      },
-      {
-        "category": "고향사랑기부제",
-        "date": "2025-04-10",
-        "type": "기타",
-        "author": "문창기",
-        "content": "민간플랫폼을 통한 모금 계획 없음"
-      }
-    ]
-  }
-]
