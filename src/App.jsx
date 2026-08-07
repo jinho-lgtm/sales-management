@@ -86,9 +86,9 @@ function emptyMuni() {
   return {
     name: '', region: REGIONS[0],
     headName: '', party: '', termCount: TERM_OPTIONS[0],
-    councilDept: '', councilContactName: '', councilContactPosition: '', councilContactPhone: '', councilContactEmail: '',
-    wegiveDept: '', wegiveContactName: '', wegiveContactPosition: '', wegiveContactPhone: '', wegiveContactEmail: '',
-    wegivepayDept: '', wegivepayContactName: '', wegivepayContactPosition: '', wegivepayContactPhone: '', wegivepayContactEmail: '',
+    councilDept: '', councilContactName: '', councilContactPosition: '', councilContactPhoneOffice: '', councilContactPhoneMobile: '', councilContactEmail: '',
+    wegiveDept: '', wegiveContactName: '', wegiveContactPosition: '', wegiveContactPhoneOffice: '', wegiveContactPhoneMobile: '', wegiveContactEmail: '',
+    wegivepayDept: '', wegivepayContactName: '', wegivepayContactPosition: '', wegivepayContactPhoneOffice: '', wegivepayContactPhoneMobile: '', wegivepayContactEmail: '',
     councilStage: '미제안', wegiveStage: '미제안', wegivepayStage: '미제안',
     fundingLastYearTotal: '', fundingLastYearWegive: '', fundingThisYearTarget: '',
     currencyLastYearTotal: '', currencyThisYearPlanned: '', currencyWegivepayAmount: '',
@@ -307,7 +307,8 @@ function MainApp({ user }) {
           wegiveDept: item.wegiveDept || '',
           wegiveContactName: item.wegiveContactName || '',
           wegiveContactPosition: item.wegiveContactPosition || '',
-          wegiveContactPhone: item.wegiveContactPhone || '',
+          wegiveContactPhoneOffice: item.wegiveContactPhoneOffice || item.wegiveContactPhone || '',
+          wegiveContactPhoneMobile: item.wegiveContactPhoneMobile || '',
           wegiveContactEmail: item.wegiveContactEmail || '',
           memo: item.memo || '',
           updatedAt: serverTimestamp(),
@@ -446,7 +447,14 @@ function MainApp({ user }) {
 
   function openEditForm() {
     if (!detail) return;
-    setFormData({ ...emptyMuni(), ...detail });
+    const merged = { ...emptyMuni(), ...detail };
+    TRACKS.forEach(t => {
+      const legacy = detail[`${t.contactPrefix}ContactPhone`];
+      if (legacy && !merged[`${t.contactPrefix}ContactPhoneOffice`]) {
+        merged[`${t.contactPrefix}ContactPhoneOffice`] = legacy;
+      }
+    });
+    setFormData(merged);
     setIsEditing(true);
     setShowForm(true);
   }
@@ -755,7 +763,8 @@ function MainApp({ user }) {
                         <div className="stage-card-label">{t.label}</div>
                         <div className="icon-row"><Building2 size={13}/>{detail[`${t.contactPrefix}Dept`] || '미입력'}</div>
                         <div className="icon-row"><User size={13}/>{detail[`${t.contactPrefix}ContactName`] || '미입력'}{detail[`${t.contactPrefix}ContactPosition`] && ` (${detail[`${t.contactPrefix}ContactPosition`]})`}</div>
-                        <div className="icon-row"><Phone size={13}/>{detail[`${t.contactPrefix}ContactPhone`] || '미입력'}</div>
+                        <div className="icon-row"><Phone size={13}/>사무실 {detail[`${t.contactPrefix}ContactPhoneOffice`] || detail[`${t.contactPrefix}ContactPhone`] || '미입력'}</div>
+                        <div className="icon-row"><Phone size={13}/>휴대폰 {detail[`${t.contactPrefix}ContactPhoneMobile`] || '미입력'}</div>
                         <div className="icon-row"><Mail size={13}/>{detail[`${t.contactPrefix}ContactEmail`] || '미입력'}</div>
                       </div>
                     ))}
@@ -1152,7 +1161,8 @@ function MuniForm({ data, setData, onSubmit, onCancel, isEditing, saving }) {
             <div className="form-field"><label>{t.label} 담당 부서</label><input value={data[`${t.contactPrefix}Dept`]} onChange={e=>set(`${t.contactPrefix}Dept`, e.target.value)} placeholder="예: 정책기획과" /></div>
             <div className="form-field"><label>{t.label} 담당자</label><input value={data[`${t.contactPrefix}ContactName`]} onChange={e=>set(`${t.contactPrefix}ContactName`, e.target.value)} /></div>
             <div className="form-field"><label>{t.label} 직책</label><input value={data[`${t.contactPrefix}ContactPosition`]} onChange={e=>set(`${t.contactPrefix}ContactPosition`, e.target.value)} placeholder="예: 주무관, 팀장" /></div>
-            <div className="form-field"><label>{t.label} 연락처</label><input value={data[`${t.contactPrefix}ContactPhone`]} onChange={e=>set(`${t.contactPrefix}ContactPhone`, e.target.value)} placeholder="000-0000-0000" /></div>
+            <div className="form-field"><label>{t.label} 사무실 연락처</label><input value={data[`${t.contactPrefix}ContactPhoneOffice`]} onChange={e=>set(`${t.contactPrefix}ContactPhoneOffice`, e.target.value)} placeholder="000-000-0000" /></div>
+            <div className="form-field"><label>{t.label} 휴대폰</label><input value={data[`${t.contactPrefix}ContactPhoneMobile`]} onChange={e=>set(`${t.contactPrefix}ContactPhoneMobile`, e.target.value)} placeholder="010-0000-0000" /></div>
             <div className="form-field full"><label>{t.label} 이메일</label><input value={data[`${t.contactPrefix}ContactEmail`]} onChange={e=>set(`${t.contactPrefix}ContactEmail`, e.target.value)} /></div>
           </React.Fragment>
         ))}
